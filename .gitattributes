@@ -1,0 +1,4 @@
+*.md -text
+*.txt -text
+*.json -text
+*.py -text

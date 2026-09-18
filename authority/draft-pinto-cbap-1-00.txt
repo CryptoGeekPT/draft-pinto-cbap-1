@@ -1,0 +1,2408 @@
+
+
+
+
+Network Working Group                                           T. Pinto
+Internet-Draft                                    Independent Researcher
+Intended status: Standards Track                       15 September 2026
+Expires: 19 March 2027
+
+
+         Contestability Binding Application Profile 1 (CBAP-1)
+                         draft-pinto-cbap-1-00
+
+Abstract
+
+   Signed authorization records can show that an action was authorized
+   under specified rules, but they do not by themselves establish a
+   stable or verifiable path for an Affected Party to contest that
+   action.
+
+   This document defines Contestability Binding Application Profile 1
+   (CBAP-1), a closed application profile that binds an Authorization
+   Artifact to signed contestation terms before execution.  CBAP-1
+   specifies deterministic CBOR and COSE encoding, fixed artifact
+   formats, executor-verification and execution records, by-value policy
+   material, a half-open filing window, a closed structured result, and
+   deterministic first-failure reason codes.
+
+   CBAP-1 does not define contestation notices, active execution-state
+   effects, network reachability checks, policy-freshness evaluation,
+   dispute adjudication, or remedy.  It reports authenticated protocol
+   facts and signed claims without asserting forum independence, legal
+   validity, physical execution order, or fairness.
+
+Status of This Memo
+
+   This Internet-Draft is submitted in full conformance with the
+   provisions of BCP 78 and BCP 79.
+
+   Internet-Drafts are working documents of the Internet Engineering
+   Task Force (IETF).  Note that other groups may also distribute
+   working documents as Internet-Drafts.  The list of current Internet-
+   Drafts is at https://datatracker.ietf.org/drafts/current/.
+
+   Internet-Drafts are draft documents valid for a maximum of six months
+   and may be updated, replaced, or obsoleted by other documents at any
+   time.  It is inappropriate to use Internet-Drafts as reference
+   material or to cite them other than as "work in progress."
+
+   This Internet-Draft will expire on 19 March 2027.
+
+
+
+
+
+Pinto                     Expires 19 March 2027                 [Page 1]
+
+Internet-Draft                   CBAP-1                   September 2026
+
+
+Copyright Notice
+
+   Copyright (c) 2026 IETF Trust and the persons identified as the
+   document authors.  All rights reserved.
+
+   This document is subject to BCP 78 and the IETF Trust's Legal
+   Provisions Relating to IETF Documents (https://trustee.ietf.org/
+   license-info) in effect on the date of publication of this document.
+   Please review these documents carefully, as they describe your rights
+   and restrictions with respect to this document.  Code Components
+   extracted from this document must include Revised BSD License text as
+   described in Section 4.e of the Trust Legal Provisions and are
+   provided without warranty as described in the Revised BSD License.
+
+Table of Contents
+
+   1.  Introduction  . . . . . . . . . . . . . . . . . . . . . . . .   3
+   2.  Requirements Language . . . . . . . . . . . . . . . . . . . .   3
+   3.  Scope . . . . . . . . . . . . . . . . . . . . . . . . . . . .   3
+   4.  Terminology . . . . . . . . . . . . . . . . . . . . . . . . .   4
+   5.  CBAP-1 Profile  . . . . . . . . . . . . . . . . . . . . . . .   5
+     5.1.  Mandatory encoding: CBAP-1 Core Deterministic CBOR  . . .   5
+     5.2.  Mandatory signature envelope  . . . . . . . . . . . . . .  11
+     5.3.  CBAP-1 closed data model  . . . . . . . . . . . . . . . .  12
+     5.4.  CBAP-1 digest and construction rules  . . . . . . . . . .  18
+     5.5.  CBAP-1 trust and verification inputs  . . . . . . . . . .  19
+   6.  Structured result . . . . . . . . . . . . . . . . . . . . . .  21
+   7.  Verification  . . . . . . . . . . . . . . . . . . . . . . . .  25
+     7.1.  CBAP-1 verification procedure . . . . . . . . . . . . . .  25
+     7.2.  CBAP-1 failure precedence and reason codes  . . . . . . .  30
+       7.2.1.  CBAP-1 structured-result transitions  . . . . . . . .  35
+   8.  Implementation Status . . . . . . . . . . . . . . . . . . . .  37
+   9.  Security Considerations . . . . . . . . . . . . . . . . . . .  38
+     9.1.  Issuer-Controlled Forum . . . . . . . . . . . . . . . . .  38
+     9.2.  Forum Substitution  . . . . . . . . . . . . . . . . . . .  38
+     9.3.  Policy Equivocation . . . . . . . . . . . . . . . . . . .  39
+     9.4.  Endpoint Availability and Network Access  . . . . . . . .  39
+     9.5.  Deadline Control and Clock Bias . . . . . . . . . . . . .  39
+     9.6.  Standing and Privacy  . . . . . . . . . . . . . . . . . .  39
+     9.7.  Abuse Controls and Credential Survivability . . . . . . .  40
+     9.8.  Replay and Exact-Acceptance Scope . . . . . . . . . . . .  40
+     9.9.  Executor Claims and Confidentiality . . . . . . . . . . .  40
+     9.10. Historical Verification and Common Control  . . . . . . .  41
+   10. IANA Considerations . . . . . . . . . . . . . . . . . . . . .  41
+   11. References  . . . . . . . . . . . . . . . . . . . . . . . . .  41
+     11.1.  Normative References . . . . . . . . . . . . . . . . . .  41
+     11.2.  Informative References . . . . . . . . . . . . . . . . .  42
+   Acknowledgements  . . . . . . . . . . . . . . . . . . . . . . . .  43
+
+
+
+Pinto                     Expires 19 March 2027                 [Page 2]
+
+Internet-Draft                   CBAP-1                   September 2026
+
+
+   Author's Address  . . . . . . . . . . . . . . . . . . . . . . . .  43
+
+1.  Introduction
+
+   Securing an agent authorization with signatures, receipts, validity
+   limits, and logs can answer one question: was the action authorized
+   under the specified rules?  It does not answer a different question:
+   where and how an Affected Party can contest the action, or which
+   contestation parameters were bound before execution.
+
+   A locator alone is insufficient.  If the forum, procedure, policy
+   references, or filing window can be substituted after authorization,
+   two implementations can validate the same authorization while
+   deriving different contestation paths.
+
+   CBAP-1 removes that ambiguity by binding the Authorization Artifact
+   to signed contestation parameters, Exact Forum Acceptance, executor-
+   verification evidence, an Execution Record, and the policy material
+   required by those objects.  It defines one deterministic verification
+   procedure and one closed structured-result contract.
+
+   The profile is intentionally narrow.  Successful CBAP-1 verification
+   reports selection_provenance: unilateral, exact forum acceptance,
+   pre_execution_evidence: executor_attested, and no active execution-
+   state effect.  It does not infer forum independence, policy fairness,
+   legal standing, current endpoint availability, human receipt,
+   physical execution order, or remedy.
+
+2.  Requirements Language
+
+   The key words *MUST*, *MUST NOT*, *REQUIRED*, *SHALL*, *SHALL NOT*,
+   *SHOULD*, *SHOULD NOT*, *RECOMMENDED*, *NOT RECOMMENDED*, *MAY*, and
+   *OPTIONAL* in this document are to be interpreted as described in BCP
+   14 [RFC2119] [RFC8174] when, and only when, they appear in all
+   capitals, as shown here.
+
+3.  Scope
+
+   This document specifies one self-contained application profile.  It
+   defines the encoding rules, payload structures, trust inputs,
+   verification procedure, and result contract required to bind an
+   authorization to contestation terms before execution.
+
+   CBAP-1 specifies:
+
+   *  Core Deterministic CBOR encoding with fixed resource ceilings for
+      the complete bundle and its signed objects;
+
+
+
+
+Pinto                     Expires 19 March 2027                 [Page 3]
+
+Internet-Draft                   CBAP-1                   September 2026
+
+
+   *  tagged embedded-payload COSE_Sign1 objects using the fixed CBAP-1
+      Ed25519 profile;
+
+   *  closed schemas for the Contestation Parameters Object, Exact Forum
+      Acceptance Statement, Authorization Artifact, Executor
+      Verification record, Execution Record, policy set, and bundle;
+
+   *  direct binding between the Authorization Artifact and CPO,
+      together with exact forum-terms binding;
+
+   *  local trust inputs for issuer, forum, and executor roles;
+
+   *  a half-open filing window [executed-at, filing_deadline);
+
+   *  a deterministic 21-boundary verification procedure;
+
+   *  a 17-entry structured result comprising 16 semantic fields plus
+      reasons, with a closed CBAP-1-reachable vocabulary; and
+
+   *  a closed first-failure vocabulary of 21 reason codes.
+
+   CBAP-1 does not define class-based forum acceptance, separate
+   contestability notices, multiparty or external selection evidence,
+   active hold or fence effects, network reachability checks, policy-
+   freshness evaluation, or generic extension machinery.
+
+   This document also does not define dispute adjudication, evidence
+   exchange, appeals, remedies, legal standing, forum impartiality,
+   legal enforceability, or the legitimacy of the underlying
+   authorization or policy.
+
+4.  Terminology
+
+   *Authorization Artifact:* The signed cbap1-authorization object
+   defined by this profile.  It binds the authorization identifier,
+   issuer, validity interval, action digest, and CPO digest.
+
+   *Authorization Instance Identifier (authorization-id):* The
+   authorization-id CDDL member is a 16-byte identifier for one
+   authorization instance, intended to be globally unique or collision-
+   resistant.
+
+   *Action Digest (action_digest):* SHA-256(action_bytes) over the exact
+   action byte string carried by the bundle, recomputed and checked
+   against each signed object that carries the action digest.
+
+   *Contestation Parameters Object (CPO):* The closed signed data
+   structure defined by the CBAP-1 CDDL in Section 5.3.
+
+
+
+Pinto                     Expires 19 March 2027                 [Page 4]
+
+Internet-Draft                   CBAP-1                   September 2026
+
+
+   *Contestation Terms:* The unsigned per-authorization data carried as
+   cbap1-terms inside the CPO, including profile identifiers,
+   authorization validity, forum and policy references, affected-party
+   access declarations, and filing-window parameters.
+
+   *Contestability Binding:* The cryptographic binding from the
+   Authorization Artifact to the exact signed CPO through its digest,
+   together with the cross-object bindings verified by Section 7.
+
+   *Forum:* The service or institution designated to receive a
+   contestation.  Successful signature verification authenticates the
+   forum-signed statement under the configured trust inputs; it does not
+   establish forum independence, competence, fairness, or legal
+   jurisdiction.
+
+   *Exact Forum Acceptance Statement:* The forum-signed acceptance of
+   the exact forum_terms projection bound to the CPO.
+
+   *Authorization Binding Profile (ABP):* The rules used to verify and
+   project the Authorization Artifact.  CBAP-1 fixes one Authorization
+   Artifact format and one ABP identifier.
+
+   *Authorization Trust Profile:* The opaque profile identifier supplied
+   by trusted local policy and bound in the CPO terms to identify the
+   authorization trust semantics accepted by the verifier.
+
+   *Standing Policy:* Versioned policy material identified by digest and
+   URI that describes which roles or parties may file.  CBAP-1 verifies
+   its bound identity and by-value integrity but does not establish the
+   legitimacy of the policy.
+
+   *Affected Party:* A person or organization whose interests may be
+   materially affected by an authorized action.  An Affected Party need
+   not be the principal, agent, issuer, executor, or relying party.
+
+5.  CBAP-1 Profile
+
+5.1.  Mandatory encoding: CBAP-1 Core Deterministic CBOR
+
+   The Contestability Binding Application Profile 1 (CBAP-1) is the
+   mandatory-to-implement encoding and executable profile defined by
+   this document.  CBAP-1 uses the Core Deterministic Encoding
+   Requirements in Section 4.2.1 of [RFC8949].  It does not use the
+   length-first map key ordering in Section 4.2.3 of [RFC8949],
+   historically called canonical CBOR by [RFC7049].
+
+   A CBAP-1 encoder and verifier MUST enforce all of the following:
+
+
+
+
+Pinto                     Expires 19 March 2027                 [Page 5]
+
+Internet-Draft                   CBAP-1                   September 2026
+
+
+   *  preferred and shortest serialization for every integer, length,
+      and tag argument;
+
+   *  definite-length byte strings, text strings, arrays, and maps only;
+
+   *  bytewise-lexicographic ordering of the deterministic encodings of
+      map keys;
+
+   *  rejection of duplicate map keys before conversion to a host-
+      language map;
+
+   *  rejection of floating-point values and simple values other than
+      false, true, and null; at the bundle outer-item boundary,
+      rejection of every CBOR tag, including tag 18; for each signed
+      COSE_Sign1 object carried inside a bundle bstr, requirement of the
+      object's outer COSE_Sign1 tag 18 and rejection of any other tag;
+
+   *  well-formed UTF-8 text strings, compared as encoded bytes without
+      Unicode, URI, case, or percent-encoding normalization;
+
+   *  unsigned-integer member labels exactly as specified by the closed
+      CDDL below.
+
+   The closed CBAP-1 CDDL uses none of the simple values false, true, or
+   null.  Their allowance at the Core Deterministic CBOR layer does not
+   make them valid where the closed CDDL requires another type; such a
+   mismatch fails at the relevant closed-schema boundary.
+
+   Before allocating, slicing, advancing an input cursor, or iterating a
+   declared collection length, a decoder MUST verify with checked
+   arithmetic that the length is representable by the host and does not
+   exceed the remaining input.  A declared length or count that cannot
+   be consumed from the received bytes MUST be rejected at the enclosing
+   encoding boundary.  It MUST NOT wrap an offset, panic, abort the
+   process, or attempt an allocation based only on the received length.
+
+   CBAP-1 additionally fixes these resource ceilings:
+
+   MAX_BUNDLE_BYTES         = 8388608
+   MAX_BSTR_BYTES           = 1048576
+   MAX_TSTR_UTF8_BYTES      = 4096
+   MAX_COLLECTION_MEMBERS   = 64
+   MAX_NESTING_DEPTH        = 32
+   MAX_POLICY_PAIRS         = 5
+
+
+
+
+
+
+
+Pinto                     Expires 19 March 2027                 [Page 6]
+
+Internet-Draft                   CBAP-1                   September 2026
+
+
+   After verification-time validation and before parsing the outer CBOR
+   item, a verifier MUST require the complete received bundle to be no
+   more than MAX_BUNDLE_BYTES bytes.  A larger bundle fails at
+   outer_encoding_invalid without parsing the bundle.
+
+   At each CBOR decoding boundary, before allocation or iteration, the
+   decoder MUST require every definite-length byte string to be no more
+   than MAX_BSTR_BYTES, every definite-length text string to contain no
+   more than MAX_TSTR_UTF8_BYTES received UTF-8 bytes, every array or
+   map to contain no more than MAX_COLLECTION_MEMBERS members, and
+   nesting depth to be no more than MAX_NESTING_DEPTH.  For the nesting-
+   depth predicate at each independently decoded CBOR boundary, the root
+   item has depth 0; descending from an item to the data item carried by
+   a tag, to an array element, or to a map key or map value increments
+   depth by one, and the decoder MUST reject before descending when the
+   resulting child depth would exceed MAX_NESTING_DEPTH.  A byte string
+   is opaque for nesting-depth accounting at the boundary that decodes
+   it; when bytes carried in a byte string are subsequently decoded as
+   CBOR by this profile, that parse is a new independent CBOR boundary
+   whose root again has depth 0.  Thus depth 32 is permitted and an
+   attempted descent to depth 33 is rejected.  The text-string ceiling
+   is measured on received UTF-8 bytes, not Unicode scalar values.
+
+   A resource-ceiling predicate belongs to the boundary currently
+   decoding the item.  At the outer-item boundary it yields
+   outer_encoding_invalid.  At signed-object boundaries 5 through 9 it
+   is part of that object's complete validation pipeline and yields that
+   object's existing invalid reason.  Resource predicates are evaluated
+   before allocation, iteration, closed-schema predicates, and later
+   cross-object or profile predicates that require the decoded value.
+
+   For example, a 5000-byte payload signer key-id text string or CPO
+   forum key-id text string exceeds MAX_TSTR_UTF8_BYTES while the signed
+   payload is decoded and therefore fails at the enclosing signed-object
+   boundary; a later 1-through-64-byte key rule or step 13 forum-key
+   length predicate is not evaluated.  A 5000-byte URI text string
+   inside a signed payload likewise fails at that signed-object boundary
+   before the step 13 HTTPS-URI predicate.  A 5000-byte protected kid
+   byte string does not exceed MAX_BSTR_BYTES, but it still fails the
+   existing protected-kid 1-through-64-byte constraint at the same
+   signed-object boundary.
+
+   The existing 64-byte key-identifier rules remain stricter than the
+   generic string ceilings wherever they apply and MUST NOT be weakened
+   by these resource limits.  Because CBAP-1 carries action bytes and
+   by-value policy bytes as byte strings, each such byte string is
+   limited to MAX_BSTR_BYTES.
+
+
+
+
+Pinto                     Expires 19 March 2027                 [Page 7]
+
+Internet-Draft                   CBAP-1                   September 2026
+
+
+   Every uri value in CBAP-1 MUST satisfy the generic URI syntax of
+   [RFC3986] and the https URI scheme requirements in Section 4.2.2 of
+   [RFC9110], with these additional profile restrictions:
+
+   *  the scheme is the exact lowercase ASCII string https;
+
+   *  an authority introduced by // is present and contains a non-empty
+      host;
+
+   *  user information is absent;
+
+   *  if a port delimiter is present, the port contains only ASCII
+      digits, begins with a digit in 1..9, is the shortest decimal
+      representation of its value, and has a numeric value in 1..65535;
+
+   *  every percent-encoded triplet is syntactically complete; and
+
+   *  a fragment component is absent.
+
+   Conformance is determined by the complete component grammar, not by a
+   prefix test or a character allowlist.  In particular:
+
+   *  authority, host, IP-literal, IPv6address, IPvFuture, path-abempty,
+      segment, pchar, and query have the meanings and ABNF defined by
+      [RFC3986];
+
+   *  a bracketed host MUST contain exactly one syntactically valid
+      [RFC3986] IPv6address or IPvFuture value;
+
+   *  [ and ] are permitted only as the delimiters of that IP-literal
+      and MUST be rejected in a registered name, path, or query;
+
+   *  a registered name is validated as reg-name; accepting the
+      characters of a putative hostname without parsing its component
+      boundaries is insufficient; and
+
+   *  IPv6 zone identifiers, including a percent-encoded zone suffix
+      inside an IP-literal, are not supported by CBAP-1 and MUST be
+      rejected.
+
+   [RFC9844] obsoletes [RFC6874] and does not define a replacement URI
+   syntax for zone identifiers.  CBAP-1 deliberately excludes them
+   because a locally scoped zone identifier is not a stable signed
+   identifier across verifiers.
+
+   Path and query components are permitted only when their complete
+   [RFC3986] grammar matches.  An explicit port MUST be validated in its
+   received lexical form before numeric conversion; a verifier MUST NOT
+
+
+
+Pinto                     Expires 19 March 2027                 [Page 8]
+
+Internet-Draft                   CBAP-1                   September 2026
+
+
+   strip leading zeros and then validate the resulting number.  CBAP-1
+   performs no URI normalization: the exact ASCII bytes are the
+   identifier and signature input.  A different but allegedly equivalent
+   spelling is a different value.  In particular, https://forum.example/
+   and https://forum.example:443/ remain distinct signed URI values even
+   when a deployment routes both to the same HTTPS service.  A prefix
+   test such as starts_with("https://"), a search for forbidden
+   delimiters, or a component-wide character allowlist is not URI
+   validation.
+
+   The following examples are normative CBAP-1 URI conformance probes.
+   Each value is evaluated as written, without normalization or network
+   resolution.
+
+   +===============================+==========+=======================+
+   | URI                           | Required | Boundary exercised    |
+   |                               | result   |                       |
+   +===============================+==========+=======================+
+   | https://forum.example         | accept   | empty path            |
+   +-------------------------------+----------+-----------------------+
+   | https://forum.example:1/      | accept   | minimum explicit port |
+   +-------------------------------+----------+-----------------------+
+   | https://forum.example:443/    | accept   | shortest decimal      |
+   | cases?open=1                  |          | port, path and query  |
+   +-------------------------------+----------+-----------------------+
+   | https://forum.example:65535/  | accept   | maximum explicit port |
+   +-------------------------------+----------+-----------------------+
+   | https://[2001:db8::1]/cases   | accept   | IPv6 address literal  |
+   +-------------------------------+----------+-----------------------+
+   | https://[v1.a]/cases          | accept   | IPvFuture             |
+   +-------------------------------+----------+-----------------------+
+   | https://forum.example/%2Fcase | accept   | complete percent      |
+   |                               |          | triplet in path       |
+   +-------------------------------+----------+-----------------------+
+   | HTTPS://forum.example/        | reject   | scheme is not exact   |
+   |                               |          | lowercase https       |
+   +-------------------------------+----------+-----------------------+
+   | https://                      | reject   | empty host            |
+   +-------------------------------+----------+-----------------------+
+   | https://user@forum.example/   | reject   | user information      |
+   +-------------------------------+----------+-----------------------+
+   | https://forum.example:/       | reject   | empty explicit port   |
+   +-------------------------------+----------+-----------------------+
+   | https://forum.example:0/      | reject   | explicit port zero    |
+   +-------------------------------+----------+-----------------------+
+   | https://forum.example:00/     | reject   | explicit port zero    |
+   |                               |          | and non-shortest form |
+   +-------------------------------+----------+-----------------------+
+
+
+
+Pinto                     Expires 19 March 2027                 [Page 9]
+
+Internet-Draft                   CBAP-1                   September 2026
+
+
+   | https://forum.example:0443/   | reject   | leading zero / non-   |
+   |                               |          | shortest form         |
+   +-------------------------------+----------+-----------------------+
+   | https://forum.example:00001/  | reject   | leading zeros / non-  |
+   |                               |          | shortest form         |
+   +-------------------------------+----------+-----------------------+
+   | https://forum.example:65536/  | reject   | port outside profile  |
+   |                               |          | range                 |
+   +-------------------------------+----------+-----------------------+
+   | https://forum.example/%2/     | reject   | incomplete percent    |
+   |                               |          | triplet               |
+   +-------------------------------+----------+-----------------------+
+   | https://forum.example/#part   | reject   | fragment present      |
+   +-------------------------------+----------+-----------------------+
+   | https://[:::]/                | reject   | invalid IPv6 address  |
+   |                               |          | literal               |
+   +-------------------------------+----------+-----------------------+
+   | https://[v1.]/                | reject   | invalid IPvFuture     |
+   +-------------------------------+----------+-----------------------+
+   | https://[fe80::1%25eth0]/     | reject   | zone identifier       |
+   |                               |          | unsupported           |
+   +-------------------------------+----------+-----------------------+
+   | https://forum.example/a[b]    | reject   | brackets in path      |
+   +-------------------------------+----------+-----------------------+
+   | https://forum.example/?a=[b]  | reject   | brackets in query     |
+   +-------------------------------+----------+-----------------------+
+
+                                 Table 1
+
+   The following conformance probe distinguishes Section 4.2.1 ordering
+   from length-first ordering.  A conforming CBAP-1 encoder MUST encode
+   the diagnostic map {100: -1, -1: 100} as hexadecimal a2186420201864.
+   An encoder that places key -1 before key 100 is not conformant even
+   if a library describes its output as canonical.
+
+   CBAP-1 fixes SHA-256 as specified by [RFC6234] as its only digest
+   function.  A digest is a 32-byte byte string; an algorithm identifier
+   is not carried beside each digest.  Algorithm substitution is
+   therefore impossible inside the profile.  Adding another hash
+   function requires a new application-profile version.
+
+   Let dCBOR(x) be the exact CBAP-1 deterministic encoding of data item
+   x.  Domain-separated hashes are computed as:
+
+   H(domain, value) = SHA-256(dCBOR([domain, value]))
+
+
+
+
+
+
+Pinto                     Expires 19 March 2027                [Page 10]
+
+Internet-Draft                   CBAP-1                   September 2026
+
+
+   domain is the exact lowercase ASCII text string defined at each use.
+   Digests of signed artifacts are SHA-256 over the complete tagged
+   COSE_Sign1 byte sequence, including the tag, protected-header bytes,
+   payload, and signature.  Policy and action digests are SHA-256 over
+   the exact supplied bytes.  A verifier MUST NOT hash a decoded and
+   reconstructed signed object in place of its received conforming
+   bytes.
+
+5.2.  Mandatory signature envelope
+
+   Every signed CBAP-1 object is an embedded-payload, tagged COSE_Sign1
+   object as defined by [RFC9052]:
+
+   18([protected, unprotected, payload, signature])
+
+   The protected header map MUST contain exactly:
+
+   { 1: -19, 4: kid }
+
+   Header label 1 is alg; value -19 is the fully specified Ed25519
+   algorithm registered by [RFC9864].  CBAP-1 MUST NOT use the
+   deprecated polymorphic EdDSA value -8.  Header label 4 is kid,
+   encoded as a byte string of 1 through 64 bytes.  The unprotected
+   header map MUST be empty.  The payload MUST be present as a byte
+   string containing one closed CBAP-1 payload.  Detached payloads,
+   countersignatures, critical headers, and additional protected or
+   unprotected headers are not supported by CBAP-1.
+
+   The signature is computed over the [RFC9052] Sig_structure with
+   context Signature1, the received protected-header bytes, an empty
+   external AAD byte string, and the embedded payload bytes.  Ed25519 is
+   defined by [RFC8032].  CBAP-1 Ed25519 verification MUST apply
+   Section 5.1.7 of [RFC8032] in full, including decoding R as a point
+   and checking 0 <= S < L, and MUST use the uncofactored equation [S]B
+   = R + [k]A, where A is the decoded public-key point and the remaining
+   notation is as in that section.  The received signature byte string
+   MUST be exactly 64 bytes; this length constraint belongs to the
+   tagged COSE_Sign1 shape predicate and MUST be evaluated before trust
+   resolution or signature verification.  The public key is an Ed25519
+   COSE_Key as defined by [RFC9053], with kty = 1, crv = 6, and a
+   32-byte x public-key value.  In particular, as part of signature
+   verification, that x value MUST decode successfully under
+   Section 5.1.3 of [RFC8032]; a decoding failure is a signature-
+   verification failure at the current signed-object boundary.  CBAP-1
+   adds no separate small-order or weak-key rejection rule beyond RFC
+   8032 point decoding and the uncofactored verification equation above.
+
+
+
+
+
+Pinto                     Expires 19 March 2027                [Page 11]
+
+Internet-Draft                   CBAP-1                   September 2026
+
+
+   kid is a key-selection hint, not a trust assertion.  The verifier's
+   local trust set MUST resolve the exact protected kid bytes to exactly
+   one authorized public key for the required role.  Zero matching
+   entries, multiple matching entries, or no entry authorized for the
+   required role fails trust resolution at the current signed-object
+   boundary as specified by the calling verification step.  Within that
+   same trust-resolution predicate, the verifier first matches entries
+   by the exact protected kid and required role and requires exactly one
+   matching entry; only then, on that uniquely resolved COSE_Key, if its
+   alg member is present, it MUST be -19.  The alg check MUST NOT filter
+   entries before the exactly-one cardinality decision and MUST be
+   completed before signature verification.  Each payload also carries
+   the signer's key-id as a text string.  The protected kid MUST equal
+   the UTF-8 encoding of that key-id byte-for-byte; no Unicode
+   normalization or other transformation is applied.  A protected kid
+   that is not exactly such an encoding is invalid in CBAP-1.
+
+5.3.  CBAP-1 closed data model
+
+   CBAP-1 defines one closed end-to-end path comprising direct
+   authorization binding, exact forum acceptance, issuer-only selection
+   provenance, by-value policy verification, executor-attested pre-
+   execution evidence, an execution-time filing clock, and effect_policy
+   = none.  Class manifests, companion bindings, notices, active
+   execution effects, multiparty selection, and external selection are
+   outside CBAP-1 and are unsupported by this profile.
+
+   In CBAP-1, epoch is an unsigned integer counting seconds from
+   1970-01-01T00:00Z UTC on the POSIX numeric timeline described for
+   nonnegative epoch-based date/time values in Section 3.4.2 of
+   [RFC8949].  CBAP-1 encodes this integer directly as the untagged CDDL
+   uint; it does not use CBOR tag 1.  Fractional and negative epoch
+   values are therefore outside the profile.  Leap seconds follow POSIX-
+   time handling: CBAP-1 does not assign an inserted leap second an
+   additional distinct integer value, and comparisons and deadline
+   arithmetic use that same POSIX numeric timeline.
+
+   The normative CDDL [RFC8610] is:
+
+   digest = bstr .size 32
+   id16 = bstr .size 16
+   epoch = uint
+   key-id = tstr
+   uri = tstr
+
+   policy-ref = [uri, digest]
+   validity = [not-before: epoch, not-after: epoch]
+   forum = [forum-id: uri, submission-endpoint: uri,
+
+
+
+Pinto                     Expires 19 March 2027                [Page 12]
+
+Internet-Draft                   CBAP-1                   September 2026
+
+
+            forum-key-id: key-id]
+   filing-window = [basis: 1, duration-seconds: uint]
+   effect-policy = [mode: 0]
+   affected-party-access = [method: 3, discovery-uri: uri,
+                            available-until: epoch]
+
+   cbap1-terms = {
+     1: id16,                       ; authorization-id
+     2: digest,                     ; abp-digest
+     3: digest,                     ; authorization-trust-profile-digest
+     4: key-id,                     ; authorization-issuer-key-id
+     5: validity,                   ; authorization-validity
+     6: digest,                     ; action-digest
+     7: forum,
+     8: policy-ref,                 ; standing-policy
+     9: policy-ref,                 ; procedure
+     10: filing-window,
+     11: effect-policy,
+     12: policy-ref,                ; selection-policy
+     13: [1* affected-party-access],
+     14: epoch,                     ; issued-at
+     15: epoch,                     ; expires-at
+     16: id16                       ; nonce
+   }
+
+   cbap1-cpo = {
+     1: 1,                         ; profile version
+     2: 1,                         ; object type: CPO
+     3: cbap1-terms,
+     4: [mode: 0, exact-acceptance-digest: digest],
+     5: [],                        ; no selection statements: unilateral
+     6: key-id                     ; issuer-key-id
+   }
+
+   cbap1-exact-acceptance = {
+     1: 1,
+     2: 2,                         ; exact forum acceptance
+     3: digest,                    ; forum-terms-digest
+     4: epoch,                     ; valid-from
+     5: epoch,                     ; valid-until
+     6: policy-ref,                ; submission-receipt-profile
+     7: policy-ref,                ; withdrawal-policy
+     8: epoch,                     ; signed-at
+     9: key-id                     ; forum-key-id
+   }
+
+   cbap1-authorization = {
+     1: 1,
+
+
+
+Pinto                     Expires 19 March 2027                [Page 13]
+
+Internet-Draft                   CBAP-1                   September 2026
+
+
+     2: 3,                         ; CBAP-1 Authorization Artifact
+     3: id16,                      ; authorization-id
+     4: key-id,                    ; issuer-key-id
+     5: tstr,                      ; agent-id
+     6: digest,                    ; action-digest
+     7: epoch,                     ; not-before
+     8: epoch,                     ; not-after
+     9: digest,                    ; cpo-digest
+     10: id16                      ; nonce
+   }
+
+   cbap1-executor-verification = {
+     1: 1,
+     2: 4,                         ; executor verification record
+     3: digest,                    ; authorization-digest
+     4: id16,                      ; authorization-id
+     5: digest,                    ; action-digest
+     6: digest,                    ; cpo-digest
+     7: 1,                         ; decision: execute
+     8: epoch,                     ; verified-at
+     9: id16,                      ; nonce
+     10: key-id                    ; executor-key-id
+   }
+
+   cbap1-execution-record = {
+     1: 1,
+     2: 5,                         ; execution record
+     3: digest,                    ; authorization-digest
+     4: digest,                    ; executor-verification-digest
+     5: id16,                      ; authorization-id
+     6: digest,                    ; action-digest
+     7: 1,                         ; disposition: executed
+     8: epoch,                     ; executed-at
+     9: id16,                      ; nonce
+     10: key-id                    ; executor-key-id
+   }
+
+   cbap1-bundle = {
+     1: 1,
+     2: bstr,                      ; cpo-cose
+     3: bstr,                      ; exact-acceptance-cose
+     4: bstr,                      ; authorization-cose
+     5: bstr,                      ; executor-verification-cose
+     6: bstr,                      ; execution-record-cose
+     7: bstr,                      ; action-bytes
+     8: [+ [digest, bstr]]         ; policy-digest, policy-bytes
+   }
+
+
+
+
+Pinto                     Expires 19 March 2027                [Page 14]
+
+Internet-Draft                   CBAP-1                   September 2026
+
+
+   The following member-label registry is normative.  The names identify
+   protocol semantics, not merely implementation variables.  An
+   implementation that assigns a listed semantic value to another label
+   is not CBAP-1 conformant even when its producer and verifier agree
+   with each other.
+
+   cbap1-terms
+      1 authorization-id
+      2 abp-digest
+      3 authorization-trust-profile-digest
+      4 authorization-issuer-key-id
+      5 authorization-validity
+      6 action-digest
+      7 forum
+      8 standing-policy
+      9 procedure
+     10 filing-window
+     11 effect-policy
+     12 selection-policy
+     13 affected-party-access
+     14 issued-at
+     15 expires-at
+     16 nonce
+
+   cbap1-cpo
+      1 profile-version
+      2 object-type
+      3 terms
+      4 exact-acceptance-reference
+      5 selection-statements
+      6 issuer-key-id
+
+   cbap1-exact-acceptance
+      1 profile-version
+      2 object-type
+      3 forum-terms-digest
+      4 valid-from
+      5 valid-until
+      6 submission-receipt-profile
+      7 withdrawal-policy
+      8 signed-at
+      9 forum-key-id
+
+   cbap1-authorization
+      1 profile-version
+      2 object-type
+      3 authorization-id
+      4 issuer-key-id
+
+
+
+Pinto                     Expires 19 March 2027                [Page 15]
+
+Internet-Draft                   CBAP-1                   September 2026
+
+
+      5 agent-id
+      6 action-digest
+      7 not-before
+      8 not-after
+      9 cpo-digest
+     10 nonce
+
+   cbap1-executor-verification
+      1 profile-version
+      2 object-type
+      3 authorization-digest
+      4 authorization-id
+      5 action-digest
+      6 cpo-digest
+      7 decision
+      8 verified-at
+      9 nonce
+     10 executor-key-id
+
+   cbap1-execution-record
+      1 profile-version
+      2 object-type
+      3 authorization-digest
+      4 executor-verification-digest
+      5 authorization-id
+      6 action-digest
+      7 disposition
+      8 executed-at
+      9 nonce
+     10 executor-key-id
+
+   cbap1-bundle
+      1 profile-version
+      2 cpo-cose
+      3 exact-acceptance-cose
+      4 authorization-cose
+      5 executor-verification-cose
+      6 execution-record-cose
+      7 action-bytes
+      8 policy-pairs
+
+   Each nonce in CBAP-1 is an object-local opaque id16 member
+   authenticated by the signature of its enclosing signed object.
+   CBAP-1 defines no equality or inequality relation among CPO terms
+   label 16, Authorization Artifact label 10, Executor Verification
+   label 9, and Execution Record label 9.  A verifier MUST NOT reject a
+   bundle merely because any two of those nonce values are equal or
+   different, and MUST NOT infer freshness, uniqueness, single use,
+
+
+
+Pinto                     Expires 19 March 2027                [Page 16]
+
+Internet-Draft                   CBAP-1                   September 2026
+
+
+   replay resistance, or protocol ordering from their presence or value.
+   Cross-object binding in CBAP-1 is established by the authorization
+   identifier, action digest, CPO digest, Authorization Artifact digest,
+   Executor Verification digest, and the required signer/key relations.
+
+   In particular, executor-verification member 5 is always action-digest
+   and member 6 is always cpo-digest.  Execution-record member 5 is
+   authorization-id and member 6 is action-digest.  Reusing a semantic
+   label number across different maps is not a CBAP-1 design rule; only
+   the registry above assigns meaning.
+
+   The integer values have the following fixed meanings in CBAP-1:
+   filing-window basis 1 is execution_time; effect mode 0 is none;
+   affected-party access method 3 is public_transparency; forum-
+   acceptance mode 0 is exact; executor decision 1 is execute; and
+   execution disposition 1 is executed.  For every fixed CBAP-1 integer
+   vocabulary, any value other than a listed fixed value is outside the
+   CBAP-1 CDDL and fails at the containing object's closed-schema
+   boundary; it is not an extension point.  In particular, a CPO effect-
+   mode integer other than 0 fails the B5 closed-schema predicate before
+   declared_effect is completed, so declared_effect remains
+   indeterminate under the closed transition table.
+
+   The filing-window duration-seconds value MUST be in the inclusive
+   range 1..18446744073709551615.  A zero-duration contestation window
+   is not valid in CBAP-1 and fails at profile_binding_mismatch rather
+   than being interpreted as an instantaneous window.
+
+   Policy pairs in bundle member 8 MUST be sorted in ascending bytewise
+   order of policy-digest and MUST NOT repeat a digest.  This makes the
+   by-value bundle unique rather than treating arbitrary array order as
+   a new encoding of the same evidence set.  After the five signed
+   payloads have been validated, the set of policy-digest values in
+   bundle member 8 MUST equal exactly the set referenced by CPO terms
+   labels 8, 9, and 12 and Exact Forum Acceptance labels 6 and 7.
+   Missing or additional policy digests fail at
+   profile_binding_mismatch; malformed, unsorted, duplicate, or
+   internally digest-inconsistent policy pairs continue to fail at
+   policy_set_invalid.
+
+   cbap1-authorization is the deliberately small Authorization Artifact
+   format admitted by this profile.  The expected CBAP-1 ABP identifier
+   is fixed by this profile as defined below; other authorization
+   formats and ABP behaviors are outside CBAP-1.  It is not proposed as
+   a universal agent-authorization format.
+
+
+
+
+
+
+Pinto                     Expires 19 March 2027                [Page 17]
+
+Internet-Draft                   CBAP-1                   September 2026
+
+
+5.4.  CBAP-1 digest and construction rules
+
+   CBAP-1 uses these exact derivations:
+
+   action_digest = SHA-256(action_bytes)
+   policy_digest = SHA-256(policy_bytes)
+   forum_terms = [terms[1], terms[2], terms[3], terms[4], terms[5],
+                  terms[6], terms[7], terms[8], terms[9], terms[10]]
+   forum_terms_digest = H("agent-contestation-forum-terms-v1",
+                          forum_terms)
+   acceptance_digest = SHA-256(exact_acceptance_cose_bytes)
+   cpo_digest = SHA-256(cpo_cose_bytes)
+   authorization_digest = SHA-256(authorization_cose_bytes)
+   verification_record_digest = SHA-256(
+       executor_verification_cose_bytes)
+
+   CBAP-1 permits action_bytes to be a zero-length byte string.  In that
+   case, action_digest is SHA-256 of the zero-length byte string.
+
+   The construction order is fixed:
+
+   1.  Fix the action bytes, policy bytes, trust inputs, identifiers,
+       validity, forum, filing window, access method, times, and nonces.
+
+   2.  Compute the action and policy digests and construct cbap1-terms.
+
+   3.  Project forum_terms, compute its digest, and obtain the forum-
+       signed exact acceptance.
+
+   4.  Hash the complete signed acceptance and place that digest in the
+       CPO payload.
+
+   5.  Sign the CPO and hash the complete tagged COSE_Sign1 bytes.
+
+   6.  Place the CPO digest in the CBAP-1 Authorization Artifact and
+       sign it.
+
+   7.  Hash the signed Authorization Artifact and construct the executor
+       verification record.  Place authorization-digest at label 3,
+       authorization-id at label 4, action-digest at label 5, and cpo-
+       digest at label 6.
+
+   8.  Sign that record, hash it, and construct the execution record.
+       Place authorization-digest at label 3, executor-verification-
+       digest at label 4, authorization-id at label 5, and action-digest
+       at label 6.
+
+
+
+
+
+Pinto                     Expires 19 March 2027                [Page 18]
+
+Internet-Draft                   CBAP-1                   September 2026
+
+
+   9.  Sign the execution record and assemble the unsigned by-value
+       bundle.
+
+   No step signs or hashes a placeholder for an object that is completed
+   later.  Reversing steps 3 through 8 changes the required digest
+   dependency and MUST fail verification.  A verifier MUST hash each
+   signed artifact from its exact received conforming bytes rather than
+   substitute a decoded-and-reconstructed representation.  A
+   reconstruction that differs by one or more bytes changes the relevant
+   digest and MUST fail verification; a byte-identical reconstruction
+   has the same digest.
+
+5.5.  CBAP-1 trust and verification inputs
+
+   The bundle is evidence, not a trust store.  A CBAP-1 verifier
+   receives separately:
+
+   *  the expected Authorization Trust Profile identifier supplied by
+      trusted local policy;
+
+   *  a local trust set containing zero or more role-authorized Ed25519
+      public-key entries, each associated with exact kid bytes; a forum-
+      role entry can additionally carry the forum-identifier
+      authorization consumed by the separate forum-terms check;
+
+   *  a verification-time input presented at the verifier boundary as an
+      integer and validated before conversion to the CBAP-1 unsigned
+      range.
+
+   The expected CBAP-1 ABP identifier is fixed by this profile as
+   H("cbap1-authorization-binding-profile-v1", 1) and MUST be derived by
+   the verifier rather than replaced by a caller-supplied alternative.
+   The expected Authorization Trust Profile identifier is supplied by
+   local policy and MUST equal terms member 3; untrusted bytes carried
+   in the bundle cannot replace it.  Policy bytes in the bundle
+   establish discoverability and digest equality only.  They do not
+   become trusted merely because the issuer supplied them.
+
+   The *CBAP-1 signed-object role table* is closed:
+
+
+
+
+
+
+
+
+
+
+
+
+Pinto                     Expires 19 March 2027                [Page 19]
+
+Internet-Draft                   CBAP-1                   September 2026
+
+
+             +========================+=====================+
+             | Signed object          | Required trust role |
+             +========================+=====================+
+             | CPO                    | issuer-role         |
+             +------------------------+---------------------+
+             | Exact Forum Acceptance | forum-role          |
+             +------------------------+---------------------+
+             | Authorization Artifact | issuer-role         |
+             +------------------------+---------------------+
+             | Executor Verification  | executor-role       |
+             +------------------------+---------------------+
+             | Execution Record       | executor-role       |
+             +------------------------+---------------------+
+
+                                 Table 2
+
+   For each signed CBAP-1 object, trust resolution matches the role
+   assigned in the CBAP-1 signed-object role table and the exact
+   protected kid bytes.  Zero matching entries or more than one matching
+   entry fails at that signed-object boundary; exactly one matching
+   entry supplies the public key used for signature verification.
+   Additional entries under the same role with different kid values are
+   allowed.  CBAP-1 resolves the Executor Verification and Execution
+   Record independently and MUST NOT require their protected kid values
+   or resolved trust entries to be equal; different kid values are
+   conforming when each object independently resolves to exactly one
+   executor-role trust entry and all remaining predicates pass.
+   Independent role authorization plus the required Execution Record
+   binding to the exact signed Executor Verification record does not by
+   itself establish that the two signer keys belong to the same legal,
+   organizational, physical, or logical executor identity.  An entry
+   carrying the same kid under a different role does not satisfy the
+   assigned role.  For the Exact Forum Acceptance signer, authorization
+   for the CPO terms forum-id is evaluated separately at the forum-terms
+   boundary and MUST NOT be folded into signed-object trust resolution.
+   In CBAP-1, absence of explicit forum-id authorization on the resolved
+   forum-role trust entry means authorization for no forum identifier;
+   omission MUST NOT be interpreted as wildcard authorization.
+
+
+
+
+
+
+
+
+
+
+
+
+
+Pinto                     Expires 19 March 2027                [Page 20]
+
+Internet-Draft                   CBAP-1                   September 2026
+
+
+   The valid verification-time range is 0..18446744073709551615.  A
+   negative integer, an integer above that range, or an external
+   representation that is not an integer fails with
+   verification_time_invalid before any bundle byte is parsed.  A public
+   adapter MAY use a textual or wider host representation to expose this
+   boundary, but parse and range failures MUST be converted to the
+   closed reason.  They MUST NOT cause an unhandled exception, panic,
+   process abort, clamping, wrapping, or substitution.  An internal API
+   whose type cannot represent an invalid value does not by itself
+   satisfy the externally observable conformance boundary.
+
+   After the complete successful CBAP-1 procedure through boundary 21
+   passes, the final structured result contains selection_provenance:
+   unilateral, forum_acknowledgement: valid_exact,
+   pre_execution_evidence: executor_attested, and declared_effect: none.
+   During evaluation, each field completes only where Section 7.2
+   assigns its positive transition; this descriptive successful-path
+   sentence neither delays nor advances any field completion.  The
+   execution record's authenticated executed-at value starts the filing
+   window.  This is an executor-signed clock claim authorized through
+   the executor-role entries of the local trust set and local policy,
+   not an external wall-clock proof.  CBAP-1 uses that local trust set
+   and local policy for signed-object trust resolution and filing-clock
+   authority.
+
+6.  Structured result
+
+   CBAP-1 returns one closed structured result.  The result has exactly
+   sixteen semantic fields plus reasons; implementations MUST NOT add
+   profile-defined result fields or result values to this CBAP-1 result.
+
+   The closed scalar vocabulary is:
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Pinto                     Expires 19 March 2027                [Page 21]
+
+Internet-Draft                   CBAP-1                   September 2026
+
+
+       +==========================+===============================+
+       | Field                    | CBAP-1 values                 |
+       +==========================+===============================+
+       | binding                  | valid, invalid, indeterminate |
+       +--------------------------+-------------------------------+
+       | pre_execution_evidence   | executor_attested, invalid,   |
+       |                          | indeterminate                 |
+       +--------------------------+-------------------------------+
+       | discoverability          | complete, incomplete,         |
+       |                          | indeterminate                 |
+       +--------------------------+-------------------------------+
+       | forum_acknowledgement    | valid_exact, invalid_scope,   |
+       |                          | invalid, indeterminate        |
+       +--------------------------+-------------------------------+
+       | forum_operational_status | not_checked                   |
+       +--------------------------+-------------------------------+
+       | selection_provenance     | unilateral, indeterminate     |
+       +--------------------------+-------------------------------+
+       | access_binding           | valid, invalid, indeterminate |
+       +--------------------------+-------------------------------+
+       | notice_evidence          | not_claimed, indeterminate    |
+       +--------------------------+-------------------------------+
+       | retrievability           | not_checked                   |
+       +--------------------------+-------------------------------+
+       | filing_window_status     | not_open, open, closed,       |
+       |                          | indeterminate                 |
+       +--------------------------+-------------------------------+
+       | policy_freshness         | indeterminate                 |
+       +--------------------------+-------------------------------+
+       | declared_effect          | none, indeterminate           |
+       +--------------------------+-------------------------------+
+       | effect_acceptance        | not_required, indeterminate   |
+       +--------------------------+-------------------------------+
+       | effect_trigger           | not_applicable, indeterminate |
+       +--------------------------+-------------------------------+
+       | effect_ordering          | not_applicable, indeterminate |
+       +--------------------------+-------------------------------+
+       | effect_application       | not_applicable, indeterminate |
+       +--------------------------+-------------------------------+
+
+                                 Table 3
+
+   filing_window_status is derived by step 21 of the CBAP-1 verification
+   procedure as not_open, open, or closed, and B21 completes the field
+   with that derived value on its positive transition.  Its
+   indeterminate value is the initialized value preserved when
+   verification stops before B21 completes the field.
+
+
+
+
+Pinto                     Expires 19 March 2027                [Page 22]
+
+Internet-Draft                   CBAP-1                   September 2026
+
+
+   reasons has a separate closed vocabulary.  It is [] on the positive
+   path.  On a negative path it contains exactly one of the twenty-one
+   reason codes defined by the B1–B21 failure-precedence table, and that
+   code is the first failing boundary under the specified precedence.
+   An implementation MAY retain additional diagnostics for operators,
+   but MUST NOT return implementation-specific strings or a second
+   reason code in reasons.
+
+   Before evaluating B1, a verifier MUST initialize the result exactly
+   as follows:
+
+   {
+     "binding": "indeterminate",
+     "pre_execution_evidence": "indeterminate",
+     "discoverability": "indeterminate",
+     "forum_acknowledgement": "indeterminate",
+     "forum_operational_status": "not_checked",
+     "selection_provenance": "indeterminate",
+     "access_binding": "indeterminate",
+     "notice_evidence": "indeterminate",
+     "retrievability": "not_checked",
+     "filing_window_status": "indeterminate",
+     "policy_freshness": "indeterminate",
+     "declared_effect": "indeterminate",
+     "effect_acceptance": "indeterminate",
+     "effect_trigger": "indeterminate",
+     "effect_ordering": "indeterminate",
+     "effect_application": "indeterminate",
+     "reasons": []
+   }
+
+   The two not_checked initial values mean that CBAP-1 has not performed
+   an operational reachability or retrievability check.  Every other
+   semantic field begins as indeterminate because no validated protocol
+   input has yet established a more specific CBAP-1 value.  The reasons
+   array begins empty.
+
+   For binding, discoverability, and declared_effect, indeterminate
+   means that the verifier has not established enough validated input to
+   select another value in that field's CBAP-1 vocabulary.  It MUST NOT
+   replace an already established binding: invalid or discoverability:
+   incomplete result.  More generally, each semantic field transitions
+   from its initial value at most once and then retains that value for
+   the remainder of verification.
+
+   The result evolves monotonically under the closed B1–B21 boundaries:
+
+
+
+
+
+Pinto                     Expires 19 March 2027                [Page 23]
+
+Internet-Draft                   CBAP-1                   September 2026
+
+
+   *  For B1 through B4, a positive semantic-field completion occurs
+      only where the closed transition table explicitly assigns one
+      after the whole boundary passes.  No other semantic field
+      completes in those boundaries.
+
+   *  For signed-object boundaries B5 through B9, no positive semantic-
+      field completion assigned to a boundary occurs unless the complete
+      signed-object validation pipeline passes.  On failure, only the
+      negative transition explicitly assigned to the first failed
+      predicate may occur.
+
+   *  For cross-object boundaries B10 through B21, a predicate that
+      passes earlier in the current boundary may complete a semantic
+      field before a later predicate in that boundary fails only where
+      the closed transition table explicitly assigns that completion.
+      There is no open-ended post-failure derivation.
+
+   *  On a negative path, reasons MUST transition exactly once from []
+      to the one-element array containing the first failure-precedence
+      reason code.  On the positive path, reasons remains [] and
+      transitions zero times.
+
+   *  When a predicate fails, verification stops for result derivation
+      at that predicate.  Later predicates in the same boundary and all
+      later boundaries do not derive additional result values.
+
+   access_binding reports only the integrity and CBAP-1 constraint
+   status of the declared affected-party access data.  It is valid only
+   when the B21 positive completion occurs after the required prior
+   CBAP-1 checks and the access horizon passes.  It is invalid only
+   where the closed transition table assigns that value: CPO signature
+   failure; authenticated CPO signer key-id mismatch against the
+   authorization-issuer key-id declared in the CPO terms; failure of an
+   affected-party discovery-uri; or failure of the affected-party access
+   horizon.  Otherwise it retains its current value, including
+   initialized indeterminate on paths that stop before a listed
+   completion. access_binding does not report delivery or current
+   retrievability.
+
+   CBAP-1 performs no policy-freshness evaluation. policy_freshness
+   therefore remains indeterminate on every CBAP-1 path.
+
+   One positive-path result, for a verification_time before executed-at,
+   is:
+
+
+
+
+
+
+
+Pinto                     Expires 19 March 2027                [Page 24]
+
+Internet-Draft                   CBAP-1                   September 2026
+
+
+   {
+     "binding": "valid",
+     "pre_execution_evidence": "executor_attested",
+     "discoverability": "complete",
+     "forum_acknowledgement": "valid_exact",
+     "forum_operational_status": "not_checked",
+     "selection_provenance": "unilateral",
+     "access_binding": "valid",
+     "notice_evidence": "not_claimed",
+     "retrievability": "not_checked",
+     "filing_window_status": "not_open",
+     "policy_freshness": "indeterminate",
+     "declared_effect": "none",
+     "effect_acceptance": "not_required",
+     "effect_trigger": "not_applicable",
+     "effect_ordering": "not_applicable",
+     "effect_application": "not_applicable",
+     "reasons": []
+   }
+
+   The positive-path filing_window_status value is derived by step 21 as
+   not_open when verification_time < executed-at, open when executed-at
+   <= verification_time < filing_deadline, and closed when
+   verification_time >= filing_deadline.
+
+   A conforming implementation MUST NOT collapse this structured result
+   into a boolean such as contestable: true or into an independence
+   claim without applying an explicitly identified local policy.  In
+   particular, forum_acknowledgement: valid_exact does not establish
+   forum reachability or independence; access_binding: valid does not
+   establish delivery or current retrievability; and
+   pre_execution_evidence: executor_attested does not prove physical
+   state or remedy.
+
+7.  Verification
+
+7.1.  CBAP-1 verification procedure
+
+   A CBAP-1 verifier performs the following closed procedure in order.
+   Steps 1 through 21 correspond one-to-one with failure-precedence
+   boundaries B1 through B21; step 22 returns the structured result and
+   is not a failure boundary.  Steps 1 through 9 establish the local-
+   input, outer-item, policy-set, and signed-object boundaries in the
+   same order as Section 7.2.  Resource ceilings from Section 5.1 are
+   predicates of the boundary currently decoding the item and are
+   evaluated before allocation, iteration, closed-schema checks, or
+   later predicates that require the decoded value.  For each signed
+   object in steps 5 through 9, the verifier completes that object's
+
+
+
+Pinto                     Expires 19 March 2027                [Page 25]
+
+Internet-Draft                   CBAP-1                   September 2026
+
+
+   entire validation pipeline before examining the next signed object:
+   CBAP-1 resource ceilings and Core Deterministic CBOR conformance
+   under Section 5.1 of the complete tagged COSE_Sign1 item; tagged
+   COSE_Sign1 shape, unprotected-header constraints, and the 64-byte
+   received-signature length constraint; resource ceilings and Core
+   Deterministic CBOR conformance of the CBOR encoded in the protected-
+   header byte string and the protected-header constraints; resource
+   ceilings and Core Deterministic CBOR conformance of the CBOR encoded
+   in the payload byte string; closed payload schema, profile version,
+   and object type; protected kid equality to the UTF-8 encoding of the
+   payload signer key-id; unique role-authorized trust resolution,
+   evaluating exact protected-kid and required-role matching and
+   exactly-one cardinality before requiring the uniquely resolved
+   COSE_Key alg, when present, to equal -19; and signature verification
+   over the received protected and payload bytes with empty external
+   AAD.  For failure-precedence purposes, the closed payload schema
+   includes every constraint expressed directly by the CBAP-1 CDDL,
+   including fixed integer values, CDDL cardinality constraints, and
+   fixed empty arrays; a fixed CDDL constraint that fails at steps 5
+   through 9 MUST NOT be re-evaluated at steps 13, 17, or 18.  Within a
+   closed map, member constraints are evaluated in ascending numeric-
+   label order; within a list, items are evaluated from index zero
+   upward.  For steps 10 through 21, predicates are evaluated in the
+   order stated in the corresponding step.
+
+   1.   Validate the verification-time input as an integer in
+        0..18446744073709551615.  Return verification_time_invalid on a
+        parse, type, sign, or range failure without parsing the bundle.
+
+   2.   Before parsing the bundle, require the complete received bundle
+        to be no more than MAX_BUNDLE_BYTES.  Then parse exactly one
+        outer CBOR item and require complete input consumption, the
+        CBAP-1 resource ceilings applicable at the outer-item boundary,
+        and the Core Deterministic CBOR constraints that can be
+        evaluated without applying the closed cbap1-bundle schema.  At
+        this outer-item boundary, reject every CBOR tag, including tag
+        18; the required tag 18 applies only to each signed COSE_Sign1
+        object carried inside a bundle bstr.  Also reject duplicate map
+        keys, indefinite-length items, non-shortest arguments,
+        disallowed simple values, floats, invalid UTF-8, any declared
+        length that cannot be consumed with checked cursor arithmetic,
+        or any outer-boundary resource ceiling exceeded by a declared
+        item.  Re-encode that outer item under Section 5.1 and require
+        byte-for-byte equality.  Do not reject an otherwise
+        deterministic outer item merely because its bundle version,
+        members, or member types do not match cbap1-bundle; those checks
+        belong to step 3.
+
+
+
+
+Pinto                     Expires 19 March 2027                [Page 26]
+
+Internet-Draft                   CBAP-1                   September 2026
+
+
+   3.   Require the outer item to be the closed cbap1-bundle with the
+        supported profile version, all required members, no unknown
+        members, and the required outer member types.  For bundle member
+        8, apply the complete CDDL grammar 8: [+ [digest, bstr]]
+        together with digest = bstr .size 32 at this step: require a
+        non-empty policy-set array; require each item to be exactly a
+        two-element [digest, bstr] pair; require the digest to be a
+        32-byte byte string; and require the policy bytes to be a byte
+        string.  These CDDL-expressed member-8 constraints belong to
+        this boundary and MUST NOT be re-evaluated at step 4.  The
+        MAX_POLICY_PAIRS upper bound, profile-defined ordering,
+        uniqueness, and digest integrity are evaluated only at step 4.
+
+   4.   Validate the already CDDL-valid policy set.  Require the array
+        to contain no more than MAX_POLICY_PAIRS pairs, require the
+        array to be in the profile-defined order, reject duplicate
+        policy digests, recompute SHA-256 over each policy byte string,
+        and require equality.  At this step only the MAX_POLICY_PAIRS
+        upper bound, order, uniqueness, and internal digest integrity
+        are evaluated.  Member-8 non-empty cardinality, exact pair
+        shape, 32-byte digest type/size, and policy-byte bstr type were
+        already established at step 3 and MUST NOT be re-evaluated here.
+        Referenced-policy presence is evaluated at step 13 after all
+        five signed payloads have passed their object-validation
+        pipelines.  The upper-bound predicate remains inside B4
+        policy_set_invalid; it creates no semantic-field transition, so
+        B4 remains P -- / N -- as specified in Section 7.2.
+
+   5.   Apply the complete signed-object validation pipeline above to
+        the CPO using its issuer-role assignment in the CBAP-1 signed-
+        object role table, and no later signed object.
+
+   6.   Apply the complete signed-object validation pipeline above to
+        the Exact Forum Acceptance using its forum-role assignment in
+        the CBAP-1 signed-object role table, and no later signed object.
+
+   7.   Apply the complete signed-object validation pipeline above to
+        the Authorization Artifact using its issuer-role assignment in
+        the CBAP-1 signed-object role table, and no later signed object.
+
+   8.   Apply the complete signed-object validation pipeline above to
+        the Executor Verification record using its executor-role
+        assignment in the CBAP-1 signed-object role table, and no later
+        signed object.
+
+   9.   Apply the complete signed-object validation pipeline above to
+        the Execution Record using its executor-role assignment in the
+        CBAP-1 signed-object role table.
+
+
+
+Pinto                     Expires 19 March 2027                [Page 27]
+
+Internet-Draft                   CBAP-1                   September 2026
+
+
+   10.  Hash the complete signed CPO and require equality with the
+        Authorization Artifact's CPO digest.
+
+   11.  Hash the complete signed Exact Forum Acceptance and require
+        equality with the CPO acceptance reference.
+
+   12.  Recompute action_digest from the bundle's action bytes.  Then,
+        in this order, require equality with CPO terms label 6,
+        Authorization Artifact label 6, Executor Verification label 5,
+        and Execution Record label 6.
+
+   13.  Evaluate these predicates in order.  Require the CPO terms to
+        use the expected CBAP-1 ABP identifier, then the expected
+        Authorization Trust Profile identifier.  Require the CPO signer
+        key-id to equal the CPO terms authorization-issuer key-id.
+        Require not-before <= not-after.  Require the filing-window
+        duration to be in 1..18446744073709551615.  Require conforming
+        HTTPS URIs, first evaluating the URI-bearing cbap1-terms members
+        in ascending numeric-label order and nested list entries in
+        ascending index order: forum-id 7[0], submission-endpoint 7[1],
+        Standing Policy URI 8[0], procedure URI 9[0], selection-policy
+        URI 12[0], and each affected-party discovery-uri at 13[i][1] for
+        increasing i; then evaluate Exact Forum Acceptance submission-
+        receipt-profile URI 6[0] and withdrawal-policy URI 7[0], in that
+        order.  Require the CPO terms forum key-id to encode as 1
+        through 64 UTF-8 bytes.  Let referenced_policy_digests be the
+        set of policy digests carried at CPO terms labels 8, 9, and 12
+        and Exact Forum Acceptance labels 6 and 7.  Require every digest
+        in referenced_policy_digests to be present in bundle member 8.
+        Then require bundle member 8 to contain no policy digest outside
+        referenced_policy_digests.  Do not compare the Authorization
+        Artifact projection or any other signed-artifact digest at this
+        step.
+
+   14.  Require the Authorization Artifact's authorization identifier,
+        issuer key-id, and validity projection to equal the
+        corresponding CPO terms.  Do not compare its action digest or
+        CPO digest at this step.
+
+   15.  Project forum_terms exactly as Section 5.4 specifies.  Require
+        its digest in the already-validated and CPO-bound Exact Forum
+        Acceptance to equal that projection.  Require the Exact Forum
+        Acceptance signer key-id to equal the CPO terms forum key-id
+        exactly.  Require the trust entry resolved for that signer at
+        step 6 to carry explicit authorization for the exact CPO terms
+        forum-id; an entry with no forum-id authorization fails this
+        predicate.
+
+
+
+
+Pinto                     Expires 19 March 2027                [Page 28]
+
+Internet-Draft                   CBAP-1                   September 2026
+
+
+   16.  Hash the complete signed Authorization Artifact and require
+        equality at Executor Verification label 3 and Execution Record
+        label 3.
+
+   17.  Require the already-validated Executor Verification record to
+        carry the bound authorization identifier at label 4 and CPO
+        digest at label 6.
+
+   18.  Hash the complete signed Executor Verification record.  Require
+        the already-validated Execution Record to carry that digest at
+        label 4 and the bound authorization identifier at label 5.
+
+   19.  Require not-before <= verified-at <= executed-at <= not-after.
+
+   20.  Compute filing_deadline = executed-at + duration-seconds with
+        checked unsigned arithmetic.
+
+   21.  Require the Exact Forum Acceptance signed-at <= not-before,
+        valid-from <= not-before, and valid-until >= filing_deadline;
+        require CPO issued-at <= verified-at and expires-at >=
+        filing_deadline; and require at least one declared access method
+        with available-until >= filing_deadline.  Treat the filing
+        window as the half-open interval [executed-at, filing_deadline).
+        Derive filing_window_status as not_open when verification_time <
+        executed-at, open when executed-at <= verification_time <
+        filing_deadline, and closed when verification_time >=
+        filing_deadline.
+
+   22.  Return every field in the CBAP-1 structured-result contract
+        independently.  The positive CBAP-1 path yields binding: valid,
+        pre_execution_evidence: executor_attested, discoverability:
+        complete, forum_acknowledgement: valid_exact,
+        forum_operational_status: not_checked, selection_provenance:
+        unilateral, access_binding: valid, notice_evidence: not_claimed,
+        retrievability: not_checked, policy_freshness: indeterminate,
+        declared_effect: none, effect_acceptance: not_required,
+        effect_trigger: not_applicable, effect_ordering: not_applicable,
+        effect_application: not_applicable, and reasons: [];
+        filing_window_status is derived as not_open, open, or closed
+        from the supplied verification time.  It does not yield forum
+        reachability, delivery, independence, policy fairness, or
+        physical execution order.
+
+   A failure at steps 1 through 21 MUST produce the corresponding first
+   reason code at the same precedence number in the CBAP-1 failure-
+   precedence table.  The verifier MUST NOT evaluate a later failure
+   boundary for purposes of reasons before the current boundary has
+   passed.  When a boundary fails, the verifier MUST stop at the first
+
+
+
+Pinto                     Expires 19 March 2027                [Page 29]
+
+Internet-Draft                   CBAP-1                   September 2026
+
+
+   failed predicate, MUST NOT evaluate any later predicate of that
+   boundary or any later boundary, and MUST complete the CBAP-1
+   structured result only through the closed transition rules in that
+   table while preserving every field already completed by an earlier
+   boundary.
+
+7.2.  CBAP-1 failure precedence and reason codes
+
+   CBAP-1 closes the externally observable failure boundary.  On the
+   positive path, reasons MUST be the empty array.  On a negative path,
+   reasons MUST contain exactly one of the codes in the table below: the
+   first failing boundary under the stated precedence.  An
+   implementation MAY retain more detailed diagnostics for operators,
+   but it MUST NOT place implementation-specific strings in reasons or
+   substitute a later, more specific failure for the first one.
+
+   +==========+=================================+======================+
+   |Precedence|Reason code                      |Boundary              |
+   +==========+=================================+======================+
+   |         1|verification_time_invalid        |The supplied          |
+   |          |                                 |verification time is  |
+   |          |                                 |not an unsigned       |
+   |          |                                 |integer representable |
+   |          |                                 |in CBAP-1.            |
+   +----------+---------------------------------+----------------------+
+   |         2|outer_encoding_invalid           |The outer item is     |
+   |          |                                 |truncated, has        |
+   |          |                                 |trailing bytes,       |
+   |          |                                 |violates Core         |
+   |          |                                 |Deterministic CBOR, or|
+   |          |                                 |uses a forbidden CBOR |
+   |          |                                 |construct.            |
+   +----------+---------------------------------+----------------------+
+   |         3|bundle_schema_invalid            |The outer item is not |
+   |          |                                 |the closed            |
+   |          |                                 |cbap1-bundle, has an  |
+   |          |                                 |unsupported profile   |
+   |          |                                 |version, contains a   |
+   |          |                                 |member of the wrong   |
+   |          |                                 |CDDL type, or violates|
+   |          |                                 |member 8 CDDL non-    |
+   |          |                                 |empty cardinality,    |
+   |          |                                 |exact pair shape,     |
+   |          |                                 |32-byte digest, or    |
+   |          |                                 |policy-byte bstr      |
+   |          |                                 |constraints.          |
+   +----------+---------------------------------+----------------------+
+   |         4|policy_set_invalid               |The CDDL-valid policy |
+
+
+
+Pinto                     Expires 19 March 2027                [Page 30]
+
+Internet-Draft                   CBAP-1                   September 2026
+
+
+   |          |                                 |array exceeds         |
+   |          |                                 |MAX_POLICY_PAIRS, is  |
+   |          |                                 |unsorted, contains a  |
+   |          |                                 |duplicate policy      |
+   |          |                                 |digest, or is         |
+   |          |                                 |internally digest-    |
+   |          |                                 |inconsistent.         |
+   +----------+---------------------------------+----------------------+
+   |         5|cpo_invalid                      |The CPO COSE envelope,|
+   |          |                                 |payload schema        |
+   |          |                                 |including fixed CDDL  |
+   |          |                                 |constraints, object   |
+   |          |                                 |type, kid, role       |
+   |          |                                 |resolution, or        |
+   |          |                                 |signature is invalid. |
+   +----------+---------------------------------+----------------------+
+   |         6|forum_acceptance_invalid         |The Exact Forum       |
+   |          |                                 |Acceptance COSE       |
+   |          |                                 |envelope, payload     |
+   |          |                                 |schema including fixed|
+   |          |                                 |CDDL constraints,     |
+   |          |                                 |object type, kid, role|
+   |          |                                 |resolution, or        |
+   |          |                                 |signature is invalid. |
+   +----------+---------------------------------+----------------------+
+   |         7|authorization_invalid            |The Authorization     |
+   |          |                                 |Artifact COSE         |
+   |          |                                 |envelope, payload     |
+   |          |                                 |schema including fixed|
+   |          |                                 |CDDL constraints,     |
+   |          |                                 |object type, kid, role|
+   |          |                                 |resolution, or        |
+   |          |                                 |signature is invalid. |
+   +----------+---------------------------------+----------------------+
+   |         8|executor_verification_invalid    |The executor-         |
+   |          |                                 |verification COSE     |
+   |          |                                 |envelope, payload     |
+   |          |                                 |schema including fixed|
+   |          |                                 |CDDL constraints,     |
+   |          |                                 |object type, kid, role|
+   |          |                                 |resolution, or        |
+   |          |                                 |signature is invalid. |
+   +----------+---------------------------------+----------------------+
+   |         9|execution_record_invalid         |The execution-record  |
+   |          |                                 |COSE envelope, payload|
+   |          |                                 |schema including fixed|
+   |          |                                 |CDDL constraints,     |
+   |          |                                 |object type, kid, role|
+
+
+
+Pinto                     Expires 19 March 2027                [Page 31]
+
+Internet-Draft                   CBAP-1                   September 2026
+
+
+   |          |                                 |resolution, or        |
+   |          |                                 |signature is invalid. |
+   +----------+---------------------------------+----------------------+
+   |        10|cpo_binding_mismatch             |The complete signed   |
+   |          |                                 |CPO digest is not the |
+   |          |                                 |digest bound into the |
+   |          |                                 |Authorization         |
+   |          |                                 |Artifact.             |
+   +----------+---------------------------------+----------------------+
+   |        11|acceptance_binding_mismatch      |The complete signed   |
+   |          |                                 |acceptance digest is  |
+   |          |                                 |not the digest bound  |
+   |          |                                 |into the CPO.         |
+   +----------+---------------------------------+----------------------+
+   |        12|action_digest_mismatch           |The action bytes do   |
+   |          |                                 |not hash to the one   |
+   |          |                                 |action digest required|
+   |          |                                 |across the four signed|
+   |          |                                 |payloads that carry   |
+   |          |                                 |it: CPO terms label 6,|
+   |          |                                 |Authorization Artifact|
+   |          |                                 |label 6, Executor     |
+   |          |                                 |Verification label 5, |
+   |          |                                 |and Execution Record  |
+   |          |                                 |label 6.              |
+   +----------+---------------------------------+----------------------+
+   |        13|profile_binding_mismatch         |The ABP, Authorization|
+   |          |                                 |Trust Profile, CPO    |
+   |          |                                 |signer-to-terms issuer|
+   |          |                                 |key-id equality,      |
+   |          |                                 |authorization-validity|
+   |          |                                 |form, non-zero filing |
+   |          |                                 |duration, HTTPS URI   |
+   |          |                                 |syntax for the        |
+   |          |                                 |required CPO and Exact|
+   |          |                                 |Forum Acceptance      |
+   |          |                                 |policy-reference URIs,|
+   |          |                                 |CPO terms forum key-id|
+   |          |                                 |length, presence of   |
+   |          |                                 |every referenced      |
+   |          |                                 |policy digest, or     |
+   |          |                                 |absence of            |
+   |          |                                 |unreferenced policy   |
+   |          |                                 |digests does not match|
+   |          |                                 |the supplied trust    |
+   |          |                                 |inputs and closed     |
+   |          |                                 |profile.              |
+   +----------+---------------------------------+----------------------+
+
+
+
+Pinto                     Expires 19 March 2027                [Page 32]
+
+Internet-Draft                   CBAP-1                   September 2026
+
+
+   |        14|authorization_projection_mismatch|The Authorization     |
+   |          |                                 |Artifact projection   |
+   |          |                                 |does not equal the    |
+   |          |                                 |authorization         |
+   |          |                                 |identifier, issuer, or|
+   |          |                                 |validity required by  |
+   |          |                                 |the CPO terms.  The   |
+   |          |                                 |action digest is      |
+   |          |                                 |evaluated only at     |
+   |          |                                 |precedence 12 and the |
+   |          |                                 |signed CPO digest only|
+   |          |                                 |at precedence 10.     |
+   +----------+---------------------------------+----------------------+
+   |        15|forum_terms_mismatch             |The accepted forum-   |
+   |          |                                 |terms digest is not   |
+   |          |                                 |the exact projection  |
+   |          |                                 |defined in            |
+   |          |                                 |Section 5.4, the Exact|
+   |          |                                 |Forum Acceptance      |
+   |          |                                 |signer key-id does not|
+   |          |                                 |exactly equal the CPO |
+   |          |                                 |terms forum key-id, or|
+   |          |                                 |the resolved forum key|
+   |          |                                 |is not authorized for |
+   |          |                                 |the CPO terms forum-  |
+   |          |                                 |id.                   |
+   +----------+---------------------------------+----------------------+
+   |        16|authorization_digest_mismatch    |The complete signed   |
+   |          |                                 |Authorization Artifact|
+   |          |                                 |digest is not the     |
+   |          |                                 |digest bound into both|
+   |          |                                 |executor records.     |
+   +----------+---------------------------------+----------------------+
+   |        17|executor_verification_mismatch   |Executor Verification |
+   |          |                                 |label 4 does not carry|
+   |          |                                 |the bound             |
+   |          |                                 |authorization         |
+   |          |                                 |identifier or label 6 |
+   |          |                                 |does not carry the    |
+   |          |                                 |bound CPO digest.     |
+   +----------+---------------------------------+----------------------+
+   |        18|execution_record_mismatch        |Execution Record label|
+   |          |                                 |4 does not bind the   |
+   |          |                                 |exact signed Executor |
+   |          |                                 |Verification record or|
+   |          |                                 |label 5 does not carry|
+   |          |                                 |the bound             |
+   |          |                                 |authorization         |
+
+
+
+Pinto                     Expires 19 March 2027                [Page 33]
+
+Internet-Draft                   CBAP-1                   September 2026
+
+
+   |          |                                 |identifier.           |
+   +----------+---------------------------------+----------------------+
+   |        19|executor_ordering_invalid        |The authenticated     |
+   |          |                                 |executor times do not |
+   |          |                                 |satisfy not-before <= |
+   |          |                                 |verified-at <=        |
+   |          |                                 |executed-at <= not-   |
+   |          |                                 |after.                |
+   +----------+---------------------------------+----------------------+
+   |        20|filing_deadline_overflow         |Adding the filing     |
+   |          |                                 |duration to executed- |
+   |          |                                 |at exceeds the CBAP-1 |
+   |          |                                 |unsigned-integer      |
+   |          |                                 |range.                |
+   +----------+---------------------------------+----------------------+
+   |        21|filing_horizon_invalid           |Exact Forum Acceptance|
+   |          |                                 |signed-at is after    |
+   |          |                                 |not-before, valid-from|
+   |          |                                 |is after not-before,  |
+   |          |                                 |or valid-until is     |
+   |          |                                 |before the filing     |
+   |          |                                 |deadline; CPO issued- |
+   |          |                                 |at is after executor  |
+   |          |                                 |verified-at or        |
+   |          |                                 |expires-at is before  |
+   |          |                                 |the filing deadline;  |
+   |          |                                 |or no affected-party  |
+   |          |                                 |access declaration    |
+   |          |                                 |remains valid through |
+   |          |                                 |the filing deadline.  |
+   +----------+---------------------------------+----------------------+
+
+                                  Table 4
+
+   The verifier evaluates local input 1 first, then the outer item, the
+   policy set, and the five signed objects in table order.  For
+   precedences 5 through 9, the verifier applies the complete signed-
+   object validation pipeline in Section 7.1 in its stated order.
+   Cross-object checks then follow precedences 10 through 21, with
+   predicates inside each step evaluated in the order stated in
+   Section 7.1.  Evaluation stops at the first failed boundary and,
+   within that boundary, at the first failed predicate.  Later
+   predicates of that boundary and all later boundaries are not
+   evaluated.
+
+   The first-reason rule is a reproducibility rule, not permission to
+   collapse the CBAP-1 structured result.  On failure, the verifier
+   applies only the structured-result transition assigned below to the
+
+
+
+Pinto                     Expires 19 March 2027                [Page 34]
+
+Internet-Draft                   CBAP-1                   September 2026
+
+
+   first failed predicate, changes reasons from [] to the corresponding
+   one-element array, preserves every previously completed field, and
+   returns the result.  A field without a listed transition preserves
+   its current value.  On the positive path, the listed positive
+   completions occur at their stated boundaries.  Positive completions
+   at boundaries 5 through 9 occur only after the complete signed-object
+   boundary passes; at boundaries 10 through 21, an earlier passed
+   predicate may complete a field before a later predicate fails only
+   where explicitly stated below.
+
+7.2.1.  CBAP-1 structured-result transitions
+
+   The following transition rules are closed.  P identifies positive
+   completion when the boundary passes.  N identifies the transition
+   caused by the first failed predicate. -- means no semantic-field
+   transition.
+
+   *  *B1 verification_time_invalid:* P --; N --.
+
+   *  *B2 outer_encoding_invalid:* P --; N --.
+
+   *  *B3 bundle_schema_invalid:* P notice_evidence = not_claimed; N --.
+      This is the profile-determined completion for a valid closed
+      cbap1-bundle, which carries no notice member.
+
+   *  *B4 policy_set_invalid:* P --; N --.
+
+   *  *B5 cpo_invalid:* P declared_effect = none, effect_acceptance =
+      not_required, effect_trigger = not_applicable, effect_ordering =
+      not_applicable, and effect_application = not_applicable.  For N,
+      signed-object predicates 1 through 7 have no semantic-field
+      transition; signature failure sets binding = invalid and
+      access_binding = invalid.
+
+   *  *B6 forum_acceptance_invalid:* P --; any first failed signed-
+      object predicate sets forum_acknowledgement = invalid.
+
+   *  *B7 authorization_invalid:* P --; any first failed signed-object
+      predicate sets binding = invalid.
+
+   *  *B8 executor_verification_invalid:* P --; any first failed signed-
+      object predicate sets pre_execution_evidence = invalid.
+
+   *  *B9 execution_record_invalid:* P --; any first failed signed-
+      object predicate sets pre_execution_evidence = invalid.
+
+   *  *B10 cpo_binding_mismatch:* P --; N sets binding = invalid.
+
+
+
+
+Pinto                     Expires 19 March 2027                [Page 35]
+
+Internet-Draft                   CBAP-1                   September 2026
+
+
+   *  *B11 acceptance_binding_mismatch:* P --; N sets
+      forum_acknowledgement = invalid.
+
+   *  *B12 action_digest_mismatch:* P --. A mismatch at CPO terms label
+      6 or Authorization Artifact label 6 sets binding = invalid.  A
+      mismatch at Executor Verification label 5 or Execution Record
+      label 6 sets pre_execution_evidence = invalid.
+
+   *  *B13 profile_binding_mismatch:* P discoverability = complete.
+      Expected-ABP or expected-Authorization-Trust-Profile mismatch has
+      no semantic-field transition.  CPO signer key-id mismatch against
+      the terms authorization-issuer key-id sets binding = invalid and
+      access_binding = invalid.  Failure of not-before <= not-after,
+      filing duration, any HTTPS URI other than an affected-party
+      discovery-uri, or forum key-id length has no semantic-field
+      transition.  Failure of an affected-party discovery-uri sets
+      access_binding = invalid.  A missing referenced policy digest sets
+      discoverability = incomplete.  An unreferenced policy digest sets
+      discoverability = complete.
+
+   *  *B14 authorization_projection_mismatch:* P selection_provenance =
+      unilateral, binding = valid; N sets binding = invalid.
+
+   *  *B15 forum_terms_mismatch:* P --. Accepted-digest mismatch sets
+      forum_acknowledgement = invalid_scope.  Acceptance-signer key-id
+      mismatch or resolved-signer authorization failure sets
+      forum_acknowledgement = invalid.
+
+   *  *B16 authorization_digest_mismatch:* P --; N sets
+      pre_execution_evidence = invalid.
+
+   *  *B17 executor_verification_mismatch:* P --; failure of either
+      label 4 authorization-identifier binding or label 6 CPO-digest
+      binding sets pre_execution_evidence = invalid.
+
+   *  *B18 execution_record_mismatch:* P --; failure of either label 4
+      exact Executor Verification binding or label 5 authorization-
+      identifier binding sets pre_execution_evidence = invalid.
+
+   *  *B19 executor_ordering_invalid:* P pre_execution_evidence =
+      executor_attested; N sets pre_execution_evidence = invalid.
+
+   *  *B20 filing_deadline_overflow:* P --; N --.
+
+   *  *B21 filing_horizon_invalid:* P forum_acknowledgement =
+      valid_exact, access_binding = valid, and filing_window_status
+      derived as specified in Section 7.1.  Failure of Exact Forum
+      Acceptance signed-at, valid-from, or valid-until sets
+
+
+
+Pinto                     Expires 19 March 2027                [Page 36]
+
+Internet-Draft                   CBAP-1                   September 2026
+
+
+      forum_acknowledgement = invalid_scope.  Failure of CPO issued-at
+      or expires-at has no semantic-field transition.  Failure of the
+      affected-party access horizon sets access_binding = invalid.
+
+   forum_operational_status remains not_checked, retrievability remains
+   not_checked, and policy_freshness remains indeterminate on every
+   CBAP-1 path.
+
+   The following list is the complete set of CBAP-1 field-ownership
+   clarifications for the closed failure classifications above:
+
+   *  B5 signed-object predicates 1 through 7 do not transition binding;
+      only CPO signature failure does.
+
+   *  B12 Executor Verification and Execution Record action-digest
+      failures transition pre_execution_evidence, not binding.
+
+   *  B13 expected-ABP and expected-Authorization-Trust-Profile
+      mismatches leave binding unchanged.
+
+   *  B16 transitions pre_execution_evidence, not binding.
+
+   *  B17 and B18 identifier or digest mismatches transition
+      pre_execution_evidence, not binding.
+
+   The closed transitions above are exhaustive for CBAP-1 failure
+   classification.  In particular, policy_set_invalid does not by itself
+   prove binding: invalid, and reachability failure is outside this
+   closed CBAP-1 byte-verification procedure.
+
+8.  Implementation Status
+
+   This section follows the guidance in [RFC7942] and is intended to be
+   removed before publication as an RFC.
+
+   The implementation evidence snapshot recorded here is current through
+   4 September 2026.  It is non-normative and does not define or
+   override CBAP-1 requirements.
+
+   The development evidence includes a Python reference implementation,
+   an oracle-blind, context-isolated Rust reconstruction, and a
+   JavaScript cross-check.  The cross-check re-encoded the external
+   positive bundle fixture byte-for-byte and verified all five Ed25519
+   signatures.  That fixture has SHA-256:
+
+   8a47e89abb2c77a9de27ffb59a5bc89a7226509236e35b0f11cf6819fd1b6646
+
+
+
+
+
+Pinto                     Expires 19 March 2027                [Page 37]
+
+Internet-Draft                   CBAP-1                   September 2026
+
+
+   The first frozen Rust reconstruction exposed a digest-label ambiguity
+   and remains frozen at SHA-256:
+
+   956b88d2832e4265913cb73f93e69b960ef6f1d860f8acbc5b50ea453cbab2f0
+
+   After specification repair, the frozen A3 source-and-artifact package
+   was recorded at SHA-256:
+
+   f2b9b0745ca8b751322f416ed62e73769b2396934b8beb811d5f71b4fc88b129
+
+   That reconstruction passed its 56-test baseline and matched the
+   retained evaluator for the positive fixture, the closed failure-
+   precedence corpus, and 28 URI cases.  A later specification refresh
+   implemented exact policy-set equality and the half-open filing
+   interval, added nonce non-relation regression coverage, and passed 61
+   tests.  Subsequent public-key-decoding, trust/profile-input,
+   resource-limit, and URI-port hardening on the same Rust lineage
+   extended the locked suite to 73/73 with zero failures.
+
+   The executable evidence is limited to the exact CBAP-1 path specified
+   by this document.  It does not establish an independent human
+   implementation, production deployment, interoperability
+   certification, exhaustive parser safety, or a security audit.
+
+   A stable public location and explicit software license for the
+   implementation and evidence packages are to be designated as part of
+   a verifiable release publication.  Until then, this section records
+   development evidence but does not claim public package availability.
+
+   Implementation and test-package contact: Tiago Pinto
+   tiago@donttrustverify.pt (mailto:tiago@donttrustverify.pt).
+
+9.  Security Considerations
+
+9.1.  Issuer-Controlled Forum
+
+   A discoverable forum can still be biased or controlled by the issuer.
+   On the successful path, CBAP-1 reports selection_provenance:
+   unilateral.  A valid forum signature therefore does not establish
+   institutional independence.
+
+9.2.  Forum Substitution
+
+   The forum identifier, submission endpoint, key identifier, procedure,
+   and bound policy references are protected by the CBAP-1 digest and
+   signature bindings.  A verifier *MUST* reject substitution after
+   authorization.
+
+
+
+
+Pinto                     Expires 19 March 2027                [Page 38]
+
+Internet-Draft                   CBAP-1                   September 2026
+
+
+9.3.  Policy Equivocation
+
+   Serving different CPOs or policy documents to different audiences can
+   move equivocation into the contestation layer.  Deployments claiming
+   a consistent view *SHOULD* register CPOs or their digests in a
+   transparency service and *MUST* define how readers detect split
+   views.
+
+9.4.  Endpoint Availability and Network Access
+
+   Cryptographic binding and Exact Forum Acceptance do not prove current
+   endpoint availability.  CBAP-1 performs no forum-operational-status
+   or retrievability check; forum_operational_status and retrievability
+   remain not_checked.
+
+   CBAP-1 verification does not require dereferencing a signed URI.  A
+   deployment that chooses to dereference one *SHOULD* treat the target,
+   each redirect, and each resolved address as untrusted network input.
+   It *SHOULD* bound redirects, time, response size, and other resource
+   use, and *SHOULD* reject loopback, private, link-local, metadata-
+   service, or otherwise privileged destinations unless such access is
+   explicitly intended and separately authorized.
+
+9.5.  Deadline Control and Clock Bias
+
+   An issuer can declare a filing window that is too short to be useful.
+   Verification authenticates the filing-window inputs and checks the
+   required arithmetic; it does not establish fairness.  Relying parties
+   *SHOULD* apply an appropriate minimum-window policy and *MUST NOT*
+   infer legitimacy from syntactic validity.
+
+   The authenticated executed-at value is an executor-signed clock
+   claim, not proof of external wall-clock accuracy.  The ordering
+   predicate constrains that claim relative to verified-at and the
+   authorization interval, but it does not prevent executor-controlled
+   clock bias.  A deployment that requires protection against such bias
+   *SHOULD* constrain clock authority and acceptable skew through its
+   local trust inputs and policy.
+
+9.6.  Standing and Privacy
+
+   A Standing Policy can exclude a person materially affected by an
+   action.  CBAP-1 makes the policy identity and supplied bytes
+   verifiable; it does not establish legal standing or policy
+   legitimacy.
+
+
+
+
+
+
+Pinto                     Expires 19 March 2027                [Page 39]
+
+Internet-Draft                   CBAP-1                   September 2026
+
+
+   Standing *SHOULD* be expressed by role or policy where possible.
+   Personally identifying evidence *SHOULD* be disclosed only under an
+   appropriate confidentiality mechanism.
+
+9.7.  Abuse Controls and Credential Survivability
+
+   Anti-replay, rate limiting, authentication, and other abuse controls
+   *MUST NOT* silently alter the bound Standing Policy or filing window.
+
+   An action can disable the only credential or lookup path available to
+   an Affected Party after execution.  CBAP-1 binds the declared access
+   information but does not prove that a real-world retrieval method
+   survives the action.  Deployments requiring survivable access need an
+   operational method that remains usable independently of the contested
+   action.
+
+9.8.  Replay and Exact-Acceptance Scope
+
+   Exact Forum Acceptance is bound to the exact forum_terms_digest,
+   forum signer, forum identifier authorization, and the other CBAP-1
+   cross-object digests.  Evidence from different terms, keys, profile
+   identifiers, policy references, or authorization bytes does not
+   become valid because labels or URIs appear similar.
+
+   CBAP-1 nonce members are object-local opaque values.  Their presence
+   or value does not establish freshness, uniqueness, single use, replay
+   resistance, or protocol ordering.
+
+9.9.  Executor Claims and Confidentiality
+
+   Signatures establish integrity and signer attribution, not physical
+   execution order or organizational identity across different keys.
+   pre_execution_evidence: executor_attested therefore establishes only
+   the signed claims accepted under the configured executor-role trust
+   inputs and the required digest and time bindings.
+
+   CBAP-1 fixes action_digest = SHA-256(action_bytes) and carries
+   action_bytes by value in the complete bundle.  Before disclosure, a
+   low-entropy action digest can permit offline guessing.  Deployments
+   *SHOULD* restrict access to the bundle and action bytes when
+   confidentiality is required.  A deployment *MUST NOT* replace CBAP-
+   1's SHA-256(action_bytes) construction with a salted commitment and
+   still claim CBAP-1 conformance.
+
+
+
+
+
+
+
+
+Pinto                     Expires 19 March 2027                [Page 40]
+
+Internet-Draft                   CBAP-1                   September 2026
+
+
+9.10.  Historical Verification and Common Control
+
+   Historical verification depends on the signed bytes and the trust
+   inputs accepted by the verifier for the relevant role.  CBAP-1 does
+   not define a separate key-rotation or continuity protocol.
+
+   Distinct issuer, forum, and executor keys establish cryptographic
+   separation, not organizational, legal, physical, or logical
+   independence.  Implementations *MUST NOT* infer institutional
+   independence merely from the number of valid signatures or distinct
+   key identifiers.
+
+10.  IANA Considerations
+
+   This document requests no IANA action.
+
+11.  References
+
+11.1.  Normative References
+
+   [RFC2119]  Bradner, S., "Key words for use in RFCs to Indicate
+              Requirement Levels", BCP 14, RFC 2119,
+              DOI 10.17487/RFC2119, March 1997,
+              <https://www.rfc-editor.org/rfc/rfc2119>.
+
+   [RFC3986]  Berners-Lee, T., Fielding, R., and L. Masinter, "Uniform
+              Resource Identifier (URI): Generic Syntax", STD 66,
+              RFC 3986, DOI 10.17487/RFC3986, January 2005,
+              <https://www.rfc-editor.org/rfc/rfc3986>.
+
+   [RFC6234]  Eastlake 3rd, D. and T. Hansen, "US Secure Hash Algorithms
+              (SHA and SHA-based HMAC and HKDF)", RFC 6234,
+              DOI 10.17487/RFC6234, May 2011,
+              <https://www.rfc-editor.org/rfc/rfc6234>.
+
+   [RFC8032]  Josefsson, S. and I. Liusvaara, "Edwards-Curve Digital
+              Signature Algorithm (EdDSA)", RFC 8032,
+              DOI 10.17487/RFC8032, January 2017,
+              <https://www.rfc-editor.org/rfc/rfc8032>.
+
+   [RFC8174]  Leiba, B., "Ambiguity of Uppercase vs Lowercase in RFC
+              2119 Key Words", BCP 14, RFC 8174, DOI 10.17487/RFC8174,
+              May 2017, <https://www.rfc-editor.org/rfc/rfc8174>.
+
+
+
+
+
+
+
+
+Pinto                     Expires 19 March 2027                [Page 41]
+
+Internet-Draft                   CBAP-1                   September 2026
+
+
+   [RFC8610]  Birkholz, H., Vigano, C., and C. Bormann, "Concise Data
+              Definition Language (CDDL): A Notational Convention to
+              Express Concise Binary Object Representation (CBOR) and
+              JSON Data Structures", RFC 8610, DOI 10.17487/RFC8610,
+              June 2019, <https://www.rfc-editor.org/rfc/rfc8610>.
+
+   [RFC8949]  Bormann, C. and P. Hoffman, "Concise Binary Object
+              Representation (CBOR)", STD 94, RFC 8949,
+              DOI 10.17487/RFC8949, December 2020,
+              <https://www.rfc-editor.org/rfc/rfc8949>.
+
+   [RFC9052]  Schaad, J., "CBOR Object Signing and Encryption (COSE):
+              Structures and Process", STD 96, RFC 9052,
+              DOI 10.17487/RFC9052, August 2022,
+              <https://www.rfc-editor.org/rfc/rfc9052>.
+
+   [RFC9053]  Schaad, J., "CBOR Object Signing and Encryption (COSE):
+              Initial Algorithms", RFC 9053, DOI 10.17487/RFC9053,
+              August 2022, <https://www.rfc-editor.org/rfc/rfc9053>.
+
+   [RFC9110]  Fielding, R., Ed., Nottingham, M., Ed., and J. Reschke,
+              Ed., "HTTP Semantics", STD 97, RFC 9110,
+              DOI 10.17487/RFC9110, June 2022,
+              <https://www.rfc-editor.org/rfc/rfc9110>.
+
+   [RFC9864]  Jones, M.B. and O. Steele, "Fully-Specified Algorithms for
+              JSON Object Signing and Encryption (JOSE) and CBOR Object
+              Signing and Encryption (COSE)", RFC 9864,
+              DOI 10.17487/RFC9864, October 2025,
+              <https://www.rfc-editor.org/rfc/rfc9864>.
+
+11.2.  Informative References
+
+   [RFC6874]  Carpenter, B., Cheshire, S., and R. Hinden, "Representing
+              IPv6 Zone Identifiers in Address Literals and Uniform
+              Resource Identifiers", RFC 6874, DOI 10.17487/RFC6874,
+              February 2013, <https://www.rfc-editor.org/rfc/rfc6874>.
+
+   [RFC7049]  Bormann, C. and P. Hoffman, "Concise Binary Object
+              Representation (CBOR)", RFC 7049, DOI 10.17487/RFC7049,
+              October 2013, <https://www.rfc-editor.org/rfc/rfc7049>.
+
+   [RFC7942]  Sheffer, Y. and A. Farrel, "Improving Awareness of Running
+              Code: The Implementation Status Section", BCP 205,
+              RFC 7942, DOI 10.17487/RFC7942, July 2016,
+              <https://www.rfc-editor.org/rfc/rfc7942>.
+
+
+
+
+
+Pinto                     Expires 19 March 2027                [Page 42]
+
+Internet-Draft                   CBAP-1                   September 2026
+
+
+   [RFC9844]  Carpenter, B. and R. Hinden, "Entering IPv6 Zone
+              Identifiers in User Interfaces", RFC 9844,
+              DOI 10.17487/RFC9844, August 2025,
+              <https://www.rfc-editor.org/rfc/rfc9844>.
+
+Acknowledgements
+
+   The author thanks Emek Can Doğru and Iman Schrock for their review of
+   the architectural predecessor to this document.
+
+Author's Address
+
+   Tiago Pinto
+   Independent Researcher
+   Portugal
+   Email: tiago@donttrustverify.pt
+   URI:   https://donttrustverify.pt
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Pinto                     Expires 19 March 2027                [Page 43]
