@@ -1,6 +1,6 @@
 # CBAP-1 vector-manifest validator
 
-Validates manifests against the unchanged v0.1 JSON Schema and
+Validates manifests against the v0.2 JSON Schema and
 `contract/VALIDATOR-INVARIANTS-v0.1.md`. Requires Python 3.10+.
 
 The virtual environment must be outside the repository. From the repository
@@ -24,15 +24,20 @@ Run validation and tests:
 
 The CLI accepts one or more UTF-8 JSON manifest files. Relative artifact paths
 resolve against each manifest's directory, or against `--artifact-root` when
-provided; absolute paths are used as given. Exit codes are **0** for all valid,
-**1** for invalid/unreadable manifests or artifacts, and **2** for usage or
+provided. `--artifact-root` affects relative artifact paths only. Relative
+`verification_context` paths resolve against the manifest directory and are
+not affected by `--artifact-root`; absolute paths are used as given.
+Direct `validate()` callers must supply both `artifact_root` and
+`verification_context_root`. Exit codes are **0** for all valid,
+**1** for invalid/unreadable manifests, artifacts, or contexts, and **2** for usage or
 frozen-input configuration errors. Diagnostics have deterministic ordering.
 Duplicate JSON members and non-JSON numeric constants are rejected.
 
 The validator checks the closed schema, class rules, authority identity and
 hash, inventory membership, target prefix, B13.P06 discriminator, exact artifact
-SHA-256, reason coherence, and structured-result reachability. The authority
-draft, public inventory, manifest schema, and invariant document are checked
+SHA-256, verification-context existence, exact-byte SHA-256 and schema validity,
+reason coherence, and structured-result reachability. The authority
+draft, public inventory, manifest schemas, context schema, and invariant document are checked
 against frozen SHA-256 hashes on startup. Keep the `src`, `authority`, and
 `contract` directories together.
 

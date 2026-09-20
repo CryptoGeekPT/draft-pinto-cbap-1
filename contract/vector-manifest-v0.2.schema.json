@@ -1,0 +1,194 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CBAP-1 Vector Manifest v0.2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "vector_id",
+    "class",
+    "authority",
+    "authority_sha256",
+    "verification_context",
+    "verification_context_sha256",
+    "artifact",
+    "sha256",
+    "expected_reason",
+    "expected_result"
+  ],
+  "properties": {
+    "vector_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+      "$comment": "For verifier-negative vectors, the validator additionally requires the literal target-surface prefix followed by '-'."
+    },
+    "class": {
+      "type": "string",
+      "enum": [
+        "positive",
+        "verifier-negative"
+      ]
+    },
+    "authority": {
+      "type": "string",
+      "pattern": "^draft-pinto-cbap-1-[0-9]{2}$"
+    },
+    "authority_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "verification_context": {
+      "type": "string",
+      "minLength": 1
+    },
+    "verification_context_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "target_surface": {
+      "type": "string",
+      "pattern": "^B(?:[1-9]|1[0-9]|2[01])\\.P[0-9]{2}$",
+      "$comment": "This pattern validates form only. The validator separately requires the surface to exist in the declared normative-surface inventory."
+    },
+    "uri_instance_kind": {
+      "type": "string",
+      "enum": [
+        "affected-party-discovery-uri",
+        "other-required-uri"
+      ]
+    },
+    "artifact": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "expected_reason": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/reason_code"
+        }
+      ]
+    },
+    "expected_result": {
+      "$ref": "#/$defs/structured_result"
+    }
+  },
+  "$defs": {
+    "reason_code": {
+      "type": "string",
+      "enum": [
+        "verification_time_invalid",
+        "outer_encoding_invalid",
+        "bundle_schema_invalid",
+        "policy_set_invalid",
+        "cpo_invalid",
+        "forum_acceptance_invalid",
+        "authorization_invalid",
+        "executor_verification_invalid",
+        "execution_record_invalid",
+        "cpo_binding_mismatch",
+        "acceptance_binding_mismatch",
+        "action_digest_mismatch",
+        "profile_binding_mismatch",
+        "authorization_projection_mismatch",
+        "forum_terms_mismatch",
+        "authorization_digest_mismatch",
+        "executor_verification_mismatch",
+        "execution_record_mismatch",
+        "executor_ordering_invalid",
+        "filing_deadline_overflow",
+        "filing_horizon_invalid"
+      ]
+    },
+    "structured_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "binding",
+        "pre_execution_evidence",
+        "discoverability",
+        "forum_acknowledgement",
+        "forum_operational_status",
+        "selection_provenance",
+        "access_binding",
+        "notice_evidence",
+        "retrievability",
+        "filing_window_status",
+        "policy_freshness",
+        "declared_effect",
+        "effect_acceptance",
+        "effect_trigger",
+        "effect_ordering",
+        "effect_application",
+        "reasons"
+      ],
+      "properties": {
+        "binding": {"type": "string", "enum": ["valid", "invalid", "indeterminate"]},
+        "pre_execution_evidence": {"type": "string", "enum": ["executor_attested", "invalid", "indeterminate"]},
+        "discoverability": {"type": "string", "enum": ["complete", "incomplete", "indeterminate"]},
+        "forum_acknowledgement": {"type": "string", "enum": ["valid_exact", "invalid_scope", "invalid", "indeterminate"]},
+        "forum_operational_status": {"type": "string", "const": "not_checked"},
+        "selection_provenance": {"type": "string", "enum": ["unilateral", "indeterminate"]},
+        "access_binding": {"type": "string", "enum": ["valid", "invalid", "indeterminate"]},
+        "notice_evidence": {"type": "string", "enum": ["not_claimed", "indeterminate"]},
+        "retrievability": {"type": "string", "const": "not_checked"},
+        "filing_window_status": {"type": "string", "enum": ["not_open", "open", "closed", "indeterminate"]},
+        "policy_freshness": {"type": "string", "const": "indeterminate"},
+        "declared_effect": {"type": "string", "enum": ["none", "indeterminate"]},
+        "effect_acceptance": {"type": "string", "enum": ["not_required", "indeterminate"]},
+        "effect_trigger": {"type": "string", "enum": ["not_applicable", "indeterminate"]},
+        "effect_ordering": {"type": "string", "enum": ["not_applicable", "indeterminate"]},
+        "effect_application": {"type": "string", "enum": ["not_applicable", "indeterminate"]},
+        "reasons": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/reason_code"},
+          "maxItems": 1
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"class": {"const": "positive"}},
+        "required": ["class"]
+      },
+      "then": {
+        "properties": {
+          "expected_reason": {"const": null},
+          "expected_result": {
+            "properties": {"reasons": {"maxItems": 0}}
+          }
+        },
+        "not": {
+          "anyOf": [
+            {"required": ["target_surface"]},
+            {"required": ["uri_instance_kind"]}
+          ]
+        }
+      },
+      "else": {
+        "required": ["target_surface"],
+        "properties": {
+          "expected_reason": {"$ref": "#/$defs/reason_code"},
+          "expected_result": {
+            "properties": {"reasons": {"minItems": 1, "maxItems": 1}}
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {"target_surface": {"const": "B13.P06"}},
+        "required": ["target_surface"]
+      },
+      "then": {"required": ["uri_instance_kind"]},
+      "else": {"not": {"required": ["uri_instance_kind"]}}
+    }
+  ]
+}

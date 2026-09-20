@@ -1,4 +1,4 @@
-"""Validate frozen CBAP-1 v0.1 manifests, without interpreting artifacts."""
+"""Validate CBAP-1 v0.2 manifests and contexts, without interpreting artifacts."""
 
 from __future__ import annotations
 
@@ -20,6 +20,8 @@ AUTHORITY_SHA256 = "98994fbbe5c45981711c0da1464b290ac34410dc51918a78182bb8ad5bf5
 INVENTORY = "CBAP-1-NORMATIVE-SURFACE-INVENTORY-PUBLIC-v1.0-2026-09-16.md"
 INVENTORY_SHA256 = "93d9f72feff872453b8fac8723dadd68a519860c0c1df17cdeaa1b043ed35a18"
 SCHEMA_SHA256 = "ce2231f9eaa3bd8dd620f3fafdba6d07395d55b4f77724ab49b1a1cdcf281d63"
+MANIFEST_SCHEMA_SHA256 = "88c614eb6b50f6f159cca9ed9fc2f12fa1a7a7efb3c285394b38bd7494986539"
+CONTEXT_SCHEMA_SHA256 = "878918da11433c0e905c621bb32220196d879389dd7d15b9c6f2005c6fedde0b"
 INVARIANTS_SHA256 = "b52a9bd2c396ffc4a62ca346d277b86367675133c16ee50e0fa3a7cf1405346b"
 
 # Invariants section 4; draft section 7.2, B1-B21 failure precedence.
@@ -95,6 +97,14 @@ def _load_json(path: Path) -> Any:
     )
 
 
+def _parse_json_bytes(data: bytes) -> Any:
+    return json.loads(
+        data.decode("utf-8"),
+        object_pairs_hook=_unique_object,
+        parse_constant=_reject_constant,
+    )
+
+
 def _sha256_file(path: Path) -> str:
     if not path.is_file():
         raise ValueError(f"not an existing file: {path}")
@@ -155,11 +165,16 @@ class ManifestValidator:
         try:
             authority_path = root / "authority" / f"{AUTHORITY}.txt"
             inventory_path = root / "authority" / INVENTORY
-            schema_path = root / "contract" / "vector-manifest-v0.1.schema.json"
+            schema_path = root / "contract" / "vector-manifest-v0.2.schema.json"
+            context_schema_path = root / "contract" / "verification-context-v0.1.schema.json"
             invariants_path = root / "contract" / "VALIDATOR-INVARIANTS-v0.1.md"
             for path, expected in (
                 (authority_path, AUTHORITY_SHA256), (inventory_path, INVENTORY_SHA256),
-                (schema_path, SCHEMA_SHA256), (invariants_path, INVARIANTS_SHA256),
+                # The v0.1 manifest schema is a frozen contract input; runtime validation uses v0.2.
+                (root / "contract" / "vector-manifest-v0.1.schema.json", SCHEMA_SHA256),
+                (schema_path, MANIFEST_SCHEMA_SHA256),
+                (context_schema_path, CONTEXT_SCHEMA_SHA256),
+                (invariants_path, INVARIANTS_SHA256),
             ):
                 if _sha256_file(path) != expected:
                     raise ConfigurationError(f"frozen input SHA-256 mismatch: {path.name}")
@@ -167,11 +182,16 @@ class ManifestValidator:
             schema = _load_json(schema_path)
             Draft202012Validator.check_schema(schema)
             self._schema = Draft202012Validator(schema)
+            context_schema = _load_json(context_schema_path)
+            Draft202012Validator.check_schema(context_schema)
+            self._context_schema = Draft202012Validator(context_schema)
         except (OSError, ValueError, SchemaError, RecursionError) as exc:
             raise ConfigurationError(f"cannot load frozen inputs: {exc}") from exc
 
-    def validate(self, manifest: Any, *, artifact_root: Path) -> tuple[str, ...]:
-        """Validate a JSON value, resolving relative artifact paths at artifact_root."""
+    def validate(
+        self, manifest: Any, *, artifact_root: Path, verification_context_root: Path
+    ) -> tuple[str, ...]:
+        """Validate a JSON value using separate artifact and context path roots."""
         schema_errors = sorted(
             self._schema.iter_errors(manifest),
             key=lambda e: (tuple(str(p) for p in e.absolute_path), e.message),
@@ -195,6 +215,31 @@ class ManifestValidator:
                 errors.append("sha256: does not match the exact artifact bytes")
         except (OSError, ValueError) as exc:
             errors.append(f"artifact: cannot read artifact: {exc}")
+
+        try:
+            context_path = Path(manifest["verification_context"])
+            if not context_path.is_absolute():
+                context_path = Path(verification_context_root) / context_path
+            if not context_path.is_file():
+                errors.append(f"verification_context: missing or not a regular file: {context_path}")
+            else:
+                context_bytes = context_path.read_bytes()
+                if hashlib.sha256(context_bytes).hexdigest() != manifest["verification_context_sha256"]:
+                    errors.append("verification_context_sha256: does not match the exact verification-context bytes")
+                try:
+                    context = _parse_json_bytes(context_bytes)
+                    context_errors = sorted(
+                        self._context_schema.iter_errors(context),
+                        key=lambda e: (tuple(str(p) for p in e.absolute_path), e.message),
+                    )
+                    errors.extend(
+                        f"verification_context schema {error.json_path}: {error.message}"
+                        for error in context_errors
+                    )
+                except (ValueError, RecursionError) as exc:
+                    errors.append(f"verification_context: cannot read JSON: {exc}")
+        except (OSError, ValueError) as exc:
+            errors.append(f"verification_context: unreadable context: {exc}")
 
         result = manifest["expected_result"]
         reachable: dict[str, Any] = dict(INITIAL_STATE)
@@ -237,14 +282,15 @@ class ManifestValidator:
         return tuple(errors)
 
     def validate_file(self, path: Path, *, artifact_root: Path | None = None) -> tuple[str, ...]:
-        """Read one UTF-8 JSON manifest; default artifact base is its directory."""
+        """Read a UTF-8 JSON manifest; its directory is the context and default artifact base."""
         path = Path(path)
         try:
             manifest = _load_json(path)
         except (OSError, ValueError, RecursionError) as exc:
             return (f"manifest: cannot read JSON: {exc}",)
         return self.validate(
-            manifest, artifact_root=path.parent if artifact_root is None else artifact_root
+            manifest, artifact_root=path.parent if artifact_root is None else artifact_root,
+            verification_context_root=path.parent,
         )
 
 

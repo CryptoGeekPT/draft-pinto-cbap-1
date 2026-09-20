@@ -1,6 +1,6 @@
 """Contract tests with opaque temporary bytes, not CBAP conformance vectors."""
 
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from copy import deepcopy
 import hashlib
 import io
@@ -85,7 +85,7 @@ class ValidatorTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.validator = ManifestValidator()
-        cls.schema = json.loads((ROOT / "contract/vector-manifest-v0.1.schema.json").read_text())
+        cls.schema = json.loads((ROOT / "contract/vector-manifest-v0.2.schema.json").read_text())
 
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="cbap1-validator-")
@@ -94,6 +94,10 @@ class ValidatorTests(unittest.TestCase):
         # Arbitrary bytes deliberately carry no protocol or case semantics.
         self.artifact = self.base / "opaque.bin"
         self.artifact.write_bytes(b"opaque\x00\xff\r\nbytes\n")
+        self.context = self.base / "context-a.json"
+        self.context.write_bytes(
+            b'{"authorization_trust_profile_id":"aa","trust_set":[],"verification_time":"0"}\r\n'
+        )
 
     def positive(self):
         return {
@@ -102,6 +106,8 @@ class ValidatorTests(unittest.TestCase):
             "authority_sha256": "98994fbbe5c45981711c0da1464b290ac34410dc51918a78182bb8ad5bf57114",
             "artifact": self.artifact.name,
             "sha256": hashlib.sha256(self.artifact.read_bytes()).hexdigest(),
+            "verification_context": self.context.name,
+            "verification_context_sha256": hashlib.sha256(self.context.read_bytes()).hexdigest(),
             "expected_reason": None, "expected_result": deepcopy(POSITIVE),
         }
 
@@ -122,10 +128,14 @@ class ValidatorTests(unittest.TestCase):
         return manifest
 
     def assertValid(self, manifest):
-        self.assertEqual(self.validator.validate(manifest, artifact_root=self.base), ())
+        self.assertEqual(self.validator.validate(
+            manifest, artifact_root=self.base, verification_context_root=self.base
+        ), ())
 
     def assertInvalid(self, manifest, diagnostic=None):
-        errors = self.validator.validate(manifest, artifact_root=self.base)
+        errors = self.validator.validate(
+            manifest, artifact_root=self.base, verification_context_root=self.base
+        )
         self.assertTrue(errors)
         if diagnostic:
             self.assertIn(diagnostic, "\n".join(errors))
@@ -144,6 +154,196 @@ class ValidatorTests(unittest.TestCase):
                 manifest = self.positive()
                 manifest["expected_result"]["filing_window_status"] = status
                 self.assertValid(manifest)
+
+    def test_context_required_manifest_fields(self):
+        for field in ("verification_context", "verification_context_sha256"):
+            with self.subTest(field=field):
+                manifest = self.positive()
+                del manifest[field]
+                self.assertInvalid(manifest, f"schema $: '{field}' is a required property")
+
+    def test_context_paths(self):
+        for value in ("context-b.json", ".", "\x00", ""):
+            with self.subTest(value=value):
+                manifest = self.positive()
+                manifest["verification_context"] = value
+                self.assertInvalid(manifest, "verification_context")
+        manifest = self.positive()
+        manifest["verification_context"] = str(self.context)
+        self.assertValid(manifest)
+
+    def test_context_hash_uses_exact_bytes(self):
+        manifest = self.positive()
+        self.context.write_bytes(self.context.read_bytes().replace(b"\r\n", b"\n"))
+        self.assertInvalid(manifest, "exact verification-context bytes")
+        self.assertValid(self.positive())
+        context = json.loads(self.context.read_bytes())
+        self.context.write_text(json.dumps(context, indent=2), encoding="utf-8")
+        self.assertInvalid(manifest, "exact verification-context bytes")
+        self.assertValid(self.positive())
+
+    def test_context_hash_format(self):
+        for value in (
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaag",
+        ):
+            with self.subTest(value=value):
+                manifest = self.positive()
+                manifest["verification_context_sha256"] = value
+                self.assertInvalid(manifest, "schema $.verification_context_sha256")
+
+    def test_context_missing_or_non_file_diagnostic(self):
+        for value in ("context-b.json", "."):
+            with self.subTest(value=value):
+                manifest = self.positive()
+                manifest["verification_context"] = value
+                errors = self.validator.validate(
+                    manifest, artifact_root=self.base, verification_context_root=self.base
+                )
+                self.assertEqual(errors, (
+                    f"verification_context: missing or not a regular file: {self.base / value}",
+                ))
+
+    def test_context_unreadable_diagnostic(self):
+        manifest = self.positive()
+        original_open = Path.open
+
+        def open_file(path, *args, **kwargs):
+            if path == self.context:
+                raise PermissionError("permission denied")
+            return original_open(path, *args, **kwargs)
+
+        with patch.object(Path, "open", autospec=True, side_effect=open_file):
+            errors = self.validator.validate(
+                manifest, artifact_root=self.base, verification_context_root=self.base
+            )
+        self.assertEqual(errors, ("verification_context: unreadable context: permission denied",))
+
+    def test_context_invalid_json(self):
+        for content in (b"{", b"{} {}", b"\xff", b'{"trust_set": [], "trust_set": []}', b"NaN", b"Infinity", b"-Infinity"):
+            with self.subTest(content=content):
+                self.context.write_bytes(content)
+                self.assertInvalid(self.positive(), "verification_context: cannot read JSON")
+
+    def test_context_is_read_once(self):
+        manifest = self.positive()
+        original_open = Path.open
+        successful_reads = 0
+
+        @contextmanager
+        def open_file(path, *args, **kwargs):
+            with original_open(path, *args, **kwargs) as stream:
+                if path == self.context:
+                    original_read = stream.read
+
+                    def read_context(*args, **kwargs):
+                        nonlocal successful_reads
+                        data = original_read(*args, **kwargs)
+                        successful_reads += 1
+                        return data
+
+                    with patch.object(stream, "read", side_effect=read_context):
+                        yield stream
+                else:
+                    yield stream
+
+        with patch.object(Path, "open", autospec=True, side_effect=open_file):
+            self.assertValid(manifest)
+        self.assertEqual(successful_reads, 1)
+
+    def test_context_schema_permitted_values(self):
+        entry = {"role": "issuer-role", "kid": "aa", "cose_key": {}}
+        contexts = (
+            {"trust_set": []},
+            {"trust_set": [entry]},
+            {"trust_set": [entry, entry]},
+            {"trust_set": [entry, {**entry, "cose_key": {"x": "bb"}}]},
+            {"trust_set": [{**entry, "cose_key": {"x": "aa"}}]},
+            {"trust_set": [{**entry, "cose_key": {"kty": 0, "crv": 0, "alg": 0}}]},
+            {"trust_set": [{**entry, "role": "forum-role", "forum_id_authorization": "forum-a"}]},
+            {"trust_set": [{**entry, "kid": ""}]},
+            {"authorization_trust_profile_id": ""},
+            {"authorization_trust_profile_id": "aabb"},
+            {"verification_time": "-1"},
+            {"verification_time": "18446744073709551616"},
+        )
+        for changes in contexts:
+            with self.subTest(changes=changes):
+                context = {"authorization_trust_profile_id": "aa", "trust_set": [], "verification_time": "0"}
+                context.update(changes)
+                self.context.write_text(json.dumps(context), encoding="utf-8")
+                self.assertValid(self.positive())
+
+    def test_context_schema_invalid_values(self):
+        entry = {"role": "issuer-role", "kid": "aa", "cose_key": {}}
+        contexts = (
+            None, [], 0, True, "",
+            {},
+            {"unknown_field": ""},
+            {"authorization_trust_profile_id": "a"},
+            {"authorization_trust_profile_id": "AA"},
+            {"authorization_trust_profile_id": 0},
+            {"trust_set": {}},
+            {"trust_set": [{}]},
+            {"trust_set": [{**entry, "role": "issuer-a"}]},
+            {"trust_set": [{**entry, "kid": "gg"}]},
+            {"trust_set": [{**entry, "kid": 0}]},
+            {"trust_set": [{**entry, "unknown_field": ""}]},
+            {"trust_set": [{**entry, "cose_key": {"unknown_field": 0}}]},
+            {"trust_set": [{**entry, "cose_key": {"x": "a"}}]},
+            {"trust_set": [{**entry, "cose_key": {"x": "AA"}}]},
+            {"trust_set": [{**entry, "cose_key": {"x": 0}}]},
+            {"trust_set": [{**entry, "cose_key": {"kty": "1"}}]},
+            {"trust_set": [{**entry, "cose_key": {"crv": True}}]},
+            {"trust_set": [{**entry, "cose_key": {"alg": None}}]},
+            {"trust_set": [{**entry, "cose_key": []}]},
+            {"trust_set": [{**entry, "forum_id_authorization": "forum-a"}]},
+            {"trust_set": [{**entry, "role": "executor-role", "forum_id_authorization": "forum-a"}]},
+            {"trust_set": [{**entry, "role": "forum-role", "forum_id_authorization": 0}]},
+        )
+        for changes in contexts:
+            with self.subTest(changes=changes):
+                context = changes
+                if isinstance(changes, dict) and changes:
+                    context = {"authorization_trust_profile_id": "aa", "trust_set": [], "verification_time": "0", **changes}
+                self.context.write_text(json.dumps(context), encoding="utf-8")
+                self.assertInvalid(self.positive(), "verification_context schema")
+        for value in ("01", "+1", "-01", "-0", " 1", "1.0", 0, -1, None, True):
+            with self.subTest(verification_time=value):
+                context = {"authorization_trust_profile_id": "aa", "trust_set": [], "verification_time": value}
+                self.context.write_text(json.dumps(context), encoding="utf-8")
+                self.assertInvalid(self.positive(), "verification_context schema $.verification_time")
+
+    def test_positive_filing_states_are_independent_of_context_time(self):
+        for time in ("-1", "0", "18446744073709551616"):
+            context = {"authorization_trust_profile_id": "aa", "trust_set": [], "verification_time": time}
+            self.context.write_text(json.dumps(context), encoding="utf-8")
+            for status in ("not_open", "open", "closed"):
+                with self.subTest(time=time, status=status):
+                    manifest = self.positive()
+                    manifest["expected_result"]["filing_window_status"] = status
+                    self.assertValid(manifest)
+
+    def test_context_root_is_explicit_and_independent(self):
+        directory = self.base / "manifests"
+        directory.mkdir()
+        manifest = self.positive()
+        with self.assertRaises(TypeError):
+            self.validator.validate(manifest, artifact_root=self.base)
+        errors = self.validator.validate(
+            manifest, artifact_root=self.base, verification_context_root=directory
+        )
+        self.assertTrue(any("verification_context" in error for error in errors))
+        self.context.rename(directory / self.context.name)
+        self.assertEqual(self.validator.validate(
+            manifest, artifact_root=self.base, verification_context_root=directory
+        ), ())
+        path = directory / "manifest.json"
+        path.write_text(json.dumps(manifest), encoding="utf-8")
+        self.assertEqual(self.validator.validate_file(path, artifact_root=self.base), ())
+        (directory / self.context.name).rename(self.context)
+        self.assertTrue(self.validator.validate_file(path, artifact_root=self.base))
 
     def test_all_inventory_surfaces_and_both_uri_kinds(self):
         seen = set()
@@ -371,6 +571,7 @@ class ValidatorTests(unittest.TestCase):
         path = directory / "manifest.json"
         manifest = self.positive()
         manifest["artifact"] = "../opaque.bin"
+        manifest["verification_context"] = "../context-a.json"
         path.write_text(json.dumps(manifest), encoding="utf-8")
         self.assertEqual(self.validator.validate_file(path), ())
         manifest["artifact"] = "opaque.bin"
@@ -378,6 +579,7 @@ class ValidatorTests(unittest.TestCase):
         self.assertTrue(self.validator.validate_file(path))
         self.assertEqual(self.validator.validate_file(path, artifact_root=self.base), ())
         manifest["artifact"] = str(self.artifact)
+        manifest["verification_context"] = str(self.context)
         self.assertValid(manifest)
 
     def test_invalid_json_files(self):
@@ -393,9 +595,13 @@ class ValidatorTests(unittest.TestCase):
         manifest = self.negative(13, 9)
         manifest["expected_result"]["binding"] = "valid"
         before = deepcopy(manifest)
-        first = self.validator.validate(manifest, artifact_root=self.base)
+        first = self.validator.validate(
+            manifest, artifact_root=self.base, verification_context_root=self.base
+        )
         self.assertTrue(first)
-        self.assertEqual(first, self.validator.validate(manifest, artifact_root=self.base))
+        self.assertEqual(first, self.validator.validate(
+            manifest, artifact_root=self.base, verification_context_root=self.base
+        ))
         self.assertEqual(manifest, before)
 
     def test_cli_success_failure_and_usage(self):
@@ -419,9 +625,13 @@ class ValidatorTests(unittest.TestCase):
         directory = self.base / "manifests"
         directory.mkdir()
         path = directory / "manifest.json"
-        path.write_text(json.dumps(self.positive()), encoding="utf-8")
+        manifest = self.positive()
+        self.context.rename(directory / self.context.name)
+        path.write_text(json.dumps(manifest), encoding="utf-8")
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()) as errors:
             self.assertEqual(main(["--artifact-root", str(self.base), str(path)]), 0)
+            (directory / self.context.name).rename(self.context)
+            self.assertEqual(main(["--artifact-root", str(self.base), str(path)]), 1)
             with patch("cbap1_validator.ManifestValidator", side_effect=ConfigurationError("test")):
                 self.assertEqual(main([str(path)]), 2)
             self.assertIn("configuration", errors.getvalue())
@@ -435,6 +645,8 @@ class ValidatorTests(unittest.TestCase):
             "authority/draft-pinto-cbap-1-00.txt",
             "authority/CBAP-1-NORMATIVE-SURFACE-INVENTORY-PUBLIC-v1.0-2026-09-16.md",
             "contract/vector-manifest-v0.1.schema.json",
+            "contract/vector-manifest-v0.2.schema.json",
+            "contract/verification-context-v0.1.schema.json",
             "contract/VALIDATOR-INVARIANTS-v0.1.md",
         ):
             with self.subTest(path=relative_path):
@@ -448,6 +660,20 @@ class ValidatorTests(unittest.TestCase):
                     path.write_bytes(original)
         with self.assertRaises(ConfigurationError):
             ManifestValidator(self.base / "missing")
+
+    def test_validation_requires_no_generation_material(self):
+        root = self.base / "repository"
+        shutil.copytree(ROOT / "authority", root / "authority")
+        (root / "contract").mkdir()
+        for name in (
+            "vector-manifest-v0.1.schema.json", "vector-manifest-v0.2.schema.json",
+            "verification-context-v0.1.schema.json", "VALIDATOR-INVARIANTS-v0.1.md",
+        ):
+            shutil.copyfile(ROOT / "contract" / name, root / "contract" / name)
+        validator = ManifestValidator(root)
+        self.assertEqual(validator.validate(
+            self.positive(), artifact_root=self.base, verification_context_root=self.base
+        ), ())
 
 
 if __name__ == "__main__":

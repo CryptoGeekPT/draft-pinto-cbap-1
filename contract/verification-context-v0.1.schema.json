@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CBAP-1 verification context v0.1",
+  "description": "Closed corpus representation of the verifier-local inputs supplied separately from a CBAP-1 bundle.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "authorization_trust_profile_id",
+    "trust_set",
+    "verification_time"
+  ],
+  "properties": {
+    "authorization_trust_profile_id": {
+      "type": "string",
+      "pattern": "^(?:[0-9a-f]{2})*$",
+      "description": "Lowercase hexadecimal representation of the expected Authorization Trust Profile identifier supplied by trusted local policy. The corpus format does not constrain its length; equality with the identifier carried in the CPO terms is evaluated by the verifier."
+    },
+    "trust_set": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/trust_entry"
+      },
+      "description": "Local role-authorized trust entries. The array intentionally has no minimum cardinality, uniqueness constraint, or corpus-defined ordering. Trust-resolution cardinality is evaluated by the verifier."
+    },
+    "verification_time": {
+      "type": "string",
+      "pattern": "^(0|-?[1-9][0-9]*)$",
+      "description": "Canonical decimal representation of the integer presented at the verifier boundary. The corpus format deliberately does not constrain the CBAP-1 unsigned range; range validation is performed by the verifier."
+    }
+  },
+  "$defs": {
+    "cose_key": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kty": {
+          "type": "integer"
+        },
+        "crv": {
+          "type": "integer"
+        },
+        "x": {
+          "type": "string",
+          "pattern": "^(?:[0-9a-f]{2})*$",
+          "description": "Lowercase hexadecimal representation of the COSE_Key x byte string. The corpus format does not constrain its length; CBAP-1 validity is evaluated by the verifier."
+        },
+        "alg": {
+          "type": "integer"
+        }
+      },
+      "description": "Corpus representation of a local COSE_Key. Members are optional so that the test-vector format can represent structurally invalid local trust inputs. Their absence or invalid values are evaluated by the verifier where the CBAP-1 verification procedure requires those properties."
+    },
+    "trust_entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "role",
+        "kid",
+        "cose_key"
+      ],
+      "properties": {
+        "role": {
+          "type": "string",
+          "enum": [
+            "issuer-role",
+            "forum-role",
+            "executor-role"
+          ]
+        },
+        "kid": {
+          "type": "string",
+          "pattern": "^(?:[0-9a-f]{2})*$",
+          "description": "Lowercase hexadecimal representation of the exact kid bytes associated with this local trust entry. The corpus format does not constrain length."
+        },
+        "cose_key": {
+          "$ref": "#/$defs/cose_key"
+        },
+        "forum_id_authorization": {
+          "type": "string",
+          "description": "Optional exact forum identifier authorized by this forum-role trust entry. Absence authorizes no forum identifier. URI conformance of the CPO terms forum-id and equality with this local authorization are evaluated by the verifier."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "role": {
+                "const": "forum-role"
+              }
+            },
+            "required": [
+              "role"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "forum_id_authorization"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  }
+}

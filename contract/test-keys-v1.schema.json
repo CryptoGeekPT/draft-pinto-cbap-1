@@ -1,0 +1,158 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CBAP-1 test keys v1",
+  "description": "Closed corpus representation of public test-only Ed25519 generation material. The private seeds in conforming files are public test material and MUST NOT be used for any purpose outside this test corpus.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "test_only",
+    "keys"
+  ],
+  "properties": {
+    "test_only": {
+      "const": true,
+      "description": "Mandatory marker that this file contains public test-only private key material."
+    },
+    "keys": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/test_key"
+      }
+    }
+  },
+  "$defs": {
+    "test_key": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "role",
+        "used_by",
+        "key_id",
+        "kid_hex",
+        "seed_hex",
+        "public_key_x_hex"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "role": {
+          "type": "string",
+          "enum": [
+            "issuer-role",
+            "forum-role",
+            "executor-role"
+          ]
+        },
+        "used_by": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": [
+              "CPO",
+              "Exact Forum Acceptance",
+              "Authorization Artifact",
+              "Executor Verification",
+              "Execution Record"
+            ]
+          },
+          "description": "Signed CBAP-1 object names, using the exact Table 2 vocabulary, for which this test key is generation material. This field is not verifier input."
+        },
+        "key_id": {
+          "type": "string",
+          "description": "Text key identifier used in the signed payload. Reference positive material uses ASCII values."
+        },
+        "kid_hex": {
+          "type": "string",
+          "pattern": "^(?:[0-9a-f]{2})*$",
+          "description": "Lowercase hexadecimal encoding of the exact UTF-8 bytes of key_id, with no Unicode normalization or other transformation."
+        },
+        "seed_hex": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "Lowercase hexadecimal encoding of the 32-byte Ed25519 private seed used as the input to RFC 8032 Section 5.1.5 key generation. This is not an expanded private key and does not include the public key."
+        },
+        "public_key_x_hex": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "Lowercase hexadecimal encoding of the 32-byte Ed25519 public key derived from seed_hex. These exact bytes are used as the COSE_Key x parameter."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "role": {
+                "const": "issuer-role"
+              }
+            },
+            "required": [
+              "role"
+            ]
+          },
+          "then": {
+            "properties": {
+              "used_by": {
+                "items": {
+                  "enum": [
+                    "CPO",
+                    "Authorization Artifact"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "role": {
+                "const": "forum-role"
+              }
+            },
+            "required": [
+              "role"
+            ]
+          },
+          "then": {
+            "properties": {
+              "used_by": {
+                "items": {
+                  "const": "Exact Forum Acceptance"
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "role": {
+                "const": "executor-role"
+              }
+            },
+            "required": [
+              "role"
+            ]
+          },
+          "then": {
+            "properties": {
+              "used_by": {
+                "items": {
+                  "enum": [
+                    "Executor Verification",
+                    "Execution Record"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}
